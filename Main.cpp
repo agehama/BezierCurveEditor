@@ -1,4 +1,4 @@
-﻿# include <Siv3D.hpp>
+﻿# include <Siv3D.hpp> // August 2016 v2
 
 class BoundingRect
 {
@@ -35,73 +35,178 @@ private:
 	Vec2 m_max = Vec2(-DBL_MAX, -DBL_MAX);
 };
 
-void Main()
+class ControlPoint
 {
-	const double controllPointRadius = 15.0;
-	std::vector<Vec2> controllPoints;
-	Optional<size_t> grabbing;
+public:
 
-	while (System::Update())
+	ControlPoint(const Vec2& pos = Mouse::PosF()) :
+		m_points({ pos, pos, pos })
+	{}
+
+	void setSymmetricallyA(const Vec2& pos)
 	{
-		if (Input::MouseR.clicked)
+		controlPointA() = pos;
+		controlPointB() = anchorPoint().movedBy(anchorPoint() - controlPointA());
+	}
+
+	void setSymmetricallyB(const Vec2& pos)
+	{
+		controlPointB() = pos;
+		controlPointA() = anchorPoint().movedBy(anchorPoint() - controlPointB());
+	}
+	
+	Vec2& controlPointA() { return m_points[0]; }
+
+	const Vec2& controlPointA()const { return m_points[0]; }
+
+	Vec2& anchorPoint() { return m_points[1]; }
+
+	const Vec2& anchorPoint()const { return m_points[1]; }
+
+	Vec2& controlPointB() { return m_points[2]; }
+
+	const Vec2& controlPointB()const { return m_points[2]; }
+
+	Vec2& operator[](size_t i) { return m_points[i]; }
+	
+	const Vec2& operator[](size_t i)const { return m_points[i]; }
+
+	size_t size()const { return m_points.size(); }
+
+	const Line innerHandle()const
+	{
+		return Line(controlPointA(), anchorPoint());
+	}
+
+	const Line outerHandle()const
+	{
+		return Line(anchorPoint(), controlPointB());
+	}
+
+	bool updateControlPoint(double radius)
+	{
+		if (!m_grabbingIndex && !Input::MouseL.clicked)
 		{
-			controllPoints.push_back(Mouse::Pos());
+			return false;
 		}
 
+		if (!m_grabbingIndex)
 		{
-			if (Input::MouseL.clicked)
+			m_grabbingIndex = mouseOverIndex(radius);
+			if (!m_grabbingIndex)
 			{
-				for (auto i : step(controllPoints.size()))
+				return false;
+			}
+		}
+		else
+		{
+			if (m_grabbingIndex)
+			{
+				if (m_grabbingIndex.value() == 1)
 				{
-					if (Circle(controllPoints[i], controllPointRadius).intersects(Mouse::Pos()))
-					{
-						grabbing = i;
-						break;
-					}
+					m_points[0] += Mouse::DeltaF();
+					m_points[1] += Mouse::DeltaF();
+					m_points[2] += Mouse::DeltaF();
+				}
+				//制御点を個別に動かす
+				else if (Input::KeyAlt.pressed)
+				{
+					m_points[m_grabbingIndex.value()] = Mouse::PosF();
+				}
+				//制御点を対称に動かす
+				else
+				{
+					m_grabbingIndex.value() == 0 ? setSymmetricallyA(Mouse::PosF()) : setSymmetricallyB(Mouse::PosF());
 				}
 			}
 
 			if (Input::MouseL.released)
 			{
-				grabbing = none;
+				m_grabbingIndex = none;
 			}
+		}		
 
-			if (grabbing)
+		return true;
+	}
+
+	Optional<size_t> mouseOverIndex(double radius)const
+	{
+		const Vec2 mousePos = Mouse::PosF();
+		const double radius2 = radius*radius;
+
+		for (auto i : step(m_points.size()))
+		{
+			if (mousePos.distanceFromSq(m_points[i]) < radius2)
 			{
-				controllPoints[grabbing.value()].moveBy(Mouse::DeltaF());
+				return i;
 			}
 		}
-		
-		for (const auto& p : controllPoints)
+
+		return none;
+	}
+
+	void draw(double radius)const
+	{
+		innerHandle().draw();
+		outerHandle().draw();
+		Circle(controlPointA(), radius*0.5).draw(Palette::Cyan);
+		Circle(anchorPoint(), radius).drawFrame(1.0, 1.0, Palette::Yellow);
+		Circle(controlPointB(), radius*0.5).draw(Palette::Cyan);
+	}
+
+private:
+
+	std::array<Vec2, 3> m_points;
+	Optional<size_t> m_grabbingIndex;
+};
+
+class BezierCurve
+{
+public:
+
+	void update()
+	{
+		if (Input::MouseR.clicked)
 		{
-			Circle(p, controllPointRadius).draw(Color(Palette::Cyan, 64));
-		}
-		if (!controllPoints.empty())
-		{
-			LineString(controllPoints).draw();
+			m_controllPoints.emplace_back(Mouse::PosF());
 		}
 
-		
+		if (Input::MouseR.pressed)
+		{
+			m_controllPoints.back().setSymmetricallyB(Mouse::PosF());
+		}
+
+		for (auto i : step(m_controllPoints.size()))
+		{
+			if (m_controllPoints[i].updateControlPoint(ControllPointRadius()))
+			{
+				break;
+			}
+		}
+	}
+
+	void draw()const
+	{
+		for (const auto& p : m_controllPoints)
+		{
+			p.draw(ControllPointRadius());
+		}
+
 		std::vector<Vec2> pp;
-		for (size_t i = 0; i + 3 < controllPoints.size(); i += 3)
+		for (size_t i = 0; i + 1 < m_controllPoints.size(); ++i)
 		{
-			auto& p0 = controllPoints[i];
-			auto& p1 = controllPoints[i + 1];
-			auto& p2 = controllPoints[i + 2];
-			auto& p3 = controllPoints[i + 3];
-			if (i != 0)
-			{
-				p0 = (controllPoints[i - 1] + p1)*0.5;
-			}
-			if (i + 4 < controllPoints.size())
-			{
-				p3 = (controllPoints[i + 2] + controllPoints[i + 4])*0.5;
-			}
+			const auto l0 = m_controllPoints[i].outerHandle();
+			const auto l1 = m_controllPoints[i + 1].innerHandle();
+
+			const auto& p0 = l0.begin;
+			const auto& p1 = l0.end;
+			const auto& p2 = l1.begin;
+			const auto& p3 = l1.end;
 
 			const auto getPos = [&](double t) {return (1 - t)*(1 - t)*(1 - t)*p0 + 3.0*(1 - t)*(1 - t)*t*p1 + 3.0*(1 - t)*t*t*p2 + t*t*t*p3; };
 
 			const Vec2 a = (3 * p3 - 9 * p2 + 9 * p1 - 3 * p0);
-			const Vec2 b = (6*p0 - 12*p1 + 6*p2);
+			const Vec2 b = (6 * p0 - 12 * p1 + 6 * p2);
 			const Vec2 c = 3 * (p1 - p0);
 
 			const Vec2 d = b*b - 4 * a*c;
@@ -121,7 +226,7 @@ void Main()
 					boundingRect.add(getPos(t1));
 					//Circle(getPos(t1), controllPointRadius).draw(Color(255, 0, 0, 128));
 				}
-				if (0 < t2&&t2 < 1) { 
+				if (0 < t2&&t2 < 1) {
 					boundingRect.add(getPos(t2));
 					//Circle(getPos(t2), controllPointRadius).draw(Color(0, 255, 0, 128));
 				}
@@ -139,7 +244,7 @@ void Main()
 					//Circle(getPos(t2), controllPointRadius).draw(Color(255, 255, 0, 128));
 				}
 			}
-			boundingRect.get().drawFrame();
+			//boundingRect.get().drawFrame();
 
 			const int divNum = 30;
 			for (int p = 0; p < divNum; ++p)
@@ -153,5 +258,25 @@ void Main()
 		{
 			LineString(pp).draw(Palette::Yellow);
 		}
+	}
+
+private:
+
+	static double ControllPointRadius()
+	{
+		return 5.0;
+	}
+
+	std::vector<ControlPoint> m_controllPoints;
+};
+
+void Main()
+{
+	BezierCurve curve;
+
+	while (System::Update())
+	{		
+		curve.update();
+		curve.draw();
 	}
 }
