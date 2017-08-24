@@ -11,12 +11,23 @@ public:
 	{
 		if (Input::MouseR.clicked)
 		{
-			m_anchorPoints.emplace_back(Mouse::PosF());
+			if (2 <= m_anchorPoints.size() && Circle(m_anchorPoints.front().anchorPoint(), AnchorPointRadius()).mouseOver)
+			{
+				m_isClosed = true;
+			}
+			
+			if (!m_isClosed)
+			{
+				m_anchorPoints.emplace_back(Mouse::PosF());
+			}
 		}
 
 		if (Input::MouseR.pressed)
 		{
-			m_anchorPoints.back().setSymmetricallyB(Mouse::PosF());
+			if (!m_isClosed)
+			{
+				m_anchorPoints.back().setSymmetricallyB(Mouse::PosF());
+			}
 		}
 
 		for (auto i : step(m_anchorPoints.size()))
@@ -36,10 +47,10 @@ public:
 		}
 
 		std::vector<Vec2> pp;
-		for (size_t i = 0; i + 1 < m_anchorPoints.size(); ++i)
+		for (size_t i = 0; i + 1 < m_anchorPoints.size() || (m_isClosed && i < m_anchorPoints.size()); ++i)
 		{
 			const auto l0 = m_anchorPoints[i].outerHandle();
-			const auto l1 = m_anchorPoints[i + 1].innerHandle();
+			const auto l1 = m_anchorPoints[(i + 1) % m_anchorPoints.size()].innerHandle();
 
 			const auto& p0 = l0.begin;
 			const auto& p1 = l0.end;
@@ -111,4 +122,5 @@ private:
 	}
 
 	std::vector<AnchorPoint> m_anchorPoints;
+	bool m_isClosed = false;
 };
