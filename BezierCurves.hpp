@@ -103,14 +103,21 @@ public:
 			const int divNum = 30;
 			for (int p = 0; p < divNum; ++p)
 			{
-				const double t = 1.0*p / (divNum - 1);
+				const double t = 1.0*p / divNum;
 				pp.push_back(getPos(t));
 			}
 		}
-
+				
 		if (!pp.empty())
 		{
-			LineString(pp).draw(Palette::Yellow);
+			if (!m_isClosed)
+			{
+				pp.push_back(m_anchorPoints.back().anchorPoint());
+			}
+
+			LineString(pp).draw(Palette::Yellow, m_isClosed);
+
+			Polygon(pp).draw(Color(Palette::White, 64));
 		}
 	}
 
