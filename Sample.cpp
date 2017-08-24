@@ -9,5 +9,6 @@ void Main()
 	{		
 		curve.update();
 		curve.draw();
+		//curve.calcIntersection();
 	}
 }

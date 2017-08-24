@@ -30,6 +30,32 @@ public:
 		return RectF(m_min, m_max - m_min);
 	}
 
+	/*
+	境界線上では交差していないという判定を厳密にしたいため、四則演算を使わずに衝突判定を行う
+	*/
+	bool intersects(const BoundingRect& other)const
+	{
+		return includes(Vec2(other.m_min.x, other.m_min.y))
+			|| includes(Vec2(other.m_min.x, other.m_max.y))
+			|| includes(Vec2(other.m_max.x, other.m_min.y))
+			|| includes(Vec2(other.m_max.x, other.m_max.y))
+			|| other.includes(Vec2(m_min.x, m_min.y))
+			|| other.includes(Vec2(m_min.x, m_max.y))
+			|| other.includes(Vec2(m_max.x, m_min.y))
+			|| other.includes(Vec2(m_max.x, m_max.y));
+	}
+
+	bool includes(const Vec2& point)const
+	{
+		return m_min.x < point.x && point.x < m_max.x
+			&& m_min.y < point.y && point.y < m_max.y;
+	}
+
+	String toString()const
+	{
+		return Format(m_min, L", ", m_max);
+	}
+
 private:
 
 	Vec2 m_min = Vec2(DBL_MAX, DBL_MAX);
