@@ -1,6 +1,7 @@
 #pragma once
-#include "AnchorPoint.hpp"
-#include "BoundingRect.hpp"
+#include <Siv3D.hpp> // August 2016 v2
+#include "include/AnchorPoint.hpp"
+#include "include/BoundingRect.hpp"
 
 class BezierCurves
 {

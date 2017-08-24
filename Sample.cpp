@@ -1,4 +1,4 @@
-﻿#include <Siv3D.hpp> // August 2016 v2
+﻿#include <Siv3D.hpp>
 #include "BezierCurves.hpp"
 
 void Main()
