@@ -35,14 +35,8 @@ public:
 	*/
 	bool intersects(const BoundingRect& other)const
 	{
-		return includes(Vec2(other.m_min.x, other.m_min.y))
-			|| includes(Vec2(other.m_min.x, other.m_max.y))
-			|| includes(Vec2(other.m_max.x, other.m_min.y))
-			|| includes(Vec2(other.m_max.x, other.m_max.y))
-			|| other.includes(Vec2(m_min.x, m_min.y))
-			|| other.includes(Vec2(m_min.x, m_max.y))
-			|| other.includes(Vec2(m_max.x, m_min.y))
-			|| other.includes(Vec2(m_max.x, m_max.y));
+		return Max(m_min.x, other.m_min.x) < Min(m_max.x, other.m_max.x)
+			&& Max(m_min.y, other.m_min.y) < Min(m_max.y, other.m_max.y);
 	}
 
 	bool includes(const Vec2& point)const
