@@ -1,13 +1,13 @@
 ﻿#include <Siv3D.hpp>
-#include "BezierCurves.hpp"
+#include "BezierCurvePath.hpp"
 
 void Main()
 {
-	BezierCurves curve;
+	BezierCurvePath path;
 
 	while (System::Update())
 	{		
-		curve.update();
-		curve.draw();
+		path.update();
+		path.draw();
 	}
 }
