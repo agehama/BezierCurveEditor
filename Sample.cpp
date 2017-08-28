@@ -3,11 +3,11 @@
 
 void Main()
 {
-	BezierCurvePath path;
+	BezierPathClipper clipper;
 
 	while (System::Update())
 	{		
-		path.update();
-		path.draw();
+		clipper.update();
+		clipper.draw();
 	}
 }

@@ -1,6 +1,6 @@
 #pragma once
 #include <Siv3D.hpp>
-#include "include/SegmentTree.hpp"
+#include "SegmentTree.hpp"
 
 /*
 三次ベジェ曲線で構成されたパスの1セグメントを表すクラス
@@ -13,8 +13,18 @@ public:
 
 	CurveSegment() = default;
 
-	CurveSegment(const Vec2& p0, const Vec2& p1, const Vec2& p2, const Vec2& p3) :
-		m_curve(p0, p1, p2, p3)
+	CurveSegment(const Vec2& p0, const Vec2& p1, const Vec2& p2, const Vec2& p3, double startT = 0.0, double endT = 1.0) :
+		m_curve(p0, p1, p2, p3),
+		m_startT(startT),
+		m_endT(endT)
+	{
+		init();
+	}
+
+	CurveSegment(const BezierCurve& bezierCurve, double startT = 0.0, double endT = 1.0) :
+		m_curve(bezierCurve),
+		m_startT(startT),
+		m_endT(endT)
 	{
 		init();
 	}
@@ -94,6 +104,17 @@ public:
 		return m_curve;
 	}
 
+	void setRange(double startT, double endT)
+	{
+		m_startT = startT;
+		m_endT = endT;
+	}
+
+	std::pair<double, double> range()const
+	{
+		return{ m_startT,m_endT };
+	}
+
 private:
 
 	void init()
@@ -149,4 +170,5 @@ private:
 
 	BezierCurve m_curve;
 	std::shared_ptr<SegmentTree> m_segmentTree;
+	double m_startT = 0.0, m_endT = 1.0;
 };

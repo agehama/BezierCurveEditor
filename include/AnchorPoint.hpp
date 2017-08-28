@@ -9,6 +9,10 @@ public:
 		m_points({ pos, pos, pos })
 	{}
 
+	AnchorPoint(const Vec2& posA, const Vec2& posAnchor, const Vec2& posB) :
+		m_points({ posA, posAnchor, posB })
+	{}
+
 	void setSymmetricallyA(const Vec2& pos)
 	{
 		controlPointA() = pos;
