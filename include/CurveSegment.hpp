@@ -1,6 +1,9 @@
 #pragma once
 #include <Siv3D.hpp>
 #include "SegmentTree.hpp"
+#include "clipper/clipper.hpp"
+
+static const double scaleInt = 100000.0;
 
 /*
 三次ベジェ曲線で構成されたパスの1セグメントを表すクラス
@@ -115,7 +118,109 @@ public:
 		return{ m_startT,m_endT };
 	}
 
+	void getSpecificPathHighPrecision(ClipperLib::Path& output, size_t zIndex, double interval, double permissibleError = 1.0)const
+	{
+		const auto adder = [&output](const Vec2& pos, size_t zIndex)
+		{
+			output << ClipperLib::IntPoint(pos.x * scaleInt, pos.y * scaleInt, zIndex);
+		};
+
+		getSpecificPathHighPrecisionImpl(adder, zIndex, interval, permissibleError);
+	}
+
+	void getSpecificPathHighPrecision(std::vector<Vec2>& output, double interval, double permissibleError = 1.0)const
+	{
+		const auto adder = [&output](const Vec2& pos, size_t zIndex)
+		{
+			output.push_back(pos);
+		};
+
+		getSpecificPathHighPrecisionImpl(adder, 0, interval, permissibleError);
+	}
+
+	/*
+	void getSpecificPathHighPrecision(ClipperLib::Path& output, size_t zIndex, double interval, double permissibleError = 1.0)const
+	{	
+		const Vec2 startPos = m_curve(m_startT);
+		output << ClipperLib::IntPoint(startPos.x * scaleInt, startPos.y * scaleInt, zIndex);
+
+		const auto binarySearchStep = [&](double prevT, double leftBound, double rightBound)->double
+		{
+			for (int count = 0; count < 100; ++count)
+			{
+				double newT = (leftBound + rightBound)*0.5;
+
+				const double distance = m_curve.length(prevT, newT);
+				if ((interval - permissibleError) <= distance && distance <= (interval + permissibleError))//OK!
+				{
+					const Vec2 newPos = m_curve(newT);
+					output << ClipperLib::IntPoint(newPos.x * scaleInt, newPos.y * scaleInt, zIndex);
+					return newT;
+				}
+				else if (distance < interval - permissibleError)//足りない
+				{
+					leftBound = newT;
+				}
+				else//進みすぎ
+				{
+					rightBound = newT;
+				}
+			}
+
+			LOG_ERROR(L"収束に失敗");
+
+			return (leftBound + rightBound)*0.5;
+		};
+		
+		double currentT = m_startT;
+		for (; interval + permissibleError < m_curve.length(currentT, m_endT);)
+		{
+			currentT = binarySearchStep(currentT, currentT, m_endT);
+		}
+	}
+	*/
+
 private:
+
+	void getSpecificPathHighPrecisionImpl(std::function<void(const Vec2& pos, size_t zIndex)> adder, size_t zIndex, double interval, double permissibleError = 1.0)const
+	{
+		const Vec2 startPos = m_curve(m_startT);
+		adder(startPos, zIndex);
+
+		const auto binarySearchStep = [&](double prevT, double leftBound, double rightBound)->double
+		{
+			for (int count = 0; count < 100; ++count)
+			{
+				double newT = (leftBound + rightBound)*0.5;
+
+				const double distance = m_curve.length(prevT, newT);
+				if ((interval - permissibleError) <= distance && distance <= (interval + permissibleError))//OK!
+				{
+					const Vec2 newPos = m_curve(newT);
+					adder(newPos, zIndex);
+					return newT;
+				}
+				else if (distance < interval - permissibleError)//足りない
+				{
+					leftBound = newT;
+				}
+				else//進みすぎ
+				{
+					rightBound = newT;
+				}
+			}
+
+			LOG_ERROR(L"収束に失敗");
+
+			return (leftBound + rightBound)*0.5;
+		};
+
+		double currentT = m_startT;
+		for (; interval + permissibleError < m_curve.length(currentT, m_endT);)
+		{
+			currentT = binarySearchStep(currentT, currentT, m_endT);
+		}
+	}
 
 	void init()
 	{

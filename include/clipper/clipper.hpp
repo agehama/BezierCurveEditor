@@ -401,9 +401,6 @@ class clipperException : public std::exception
 
 } //ClipperLib namespace
 
-#endif //clipper_hpp
-
-
   /*******************************************************************************
   *                                                                              *
   * Author    :  Angus Johnson                                                   *
@@ -5060,3 +5057,5 @@ namespace ClipperLib {
 	//------------------------------------------------------------------------------
 
 } //ClipperLib namespace
+
+#endif //clipper_hpp
