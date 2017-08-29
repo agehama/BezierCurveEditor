@@ -9,7 +9,6 @@
 #include "include/clipper/clipper.hpp"
 
 const double scaleInt = 100000.0;
-//const double scaleInt = 1.0;
 
 std::vector<ClipperLib::IntPoint> intersectionPoints;
 std::vector<Line> linesForDebug;
@@ -20,40 +19,6 @@ double getVerticalDistance(const Vec2& origin, const Vec2& a, const Vec2& b)
 	return ((origin - b) + project).lengthSq();
 }
 
-//void ZFillFunc(ClipperLib::IntPoint& e1bot, ClipperLib::IntPoint& e1top, ClipperLib::IntPoint& e2bot, ClipperLib::IntPoint& e2top, ClipperLib::IntPoint& pt)
-//{
-//	const Vec2 p(pt.X, pt.Y);
-//	const Vec2& p1 = Line(e1bot.X, e1bot.Y, e1top.X, e1top.Y).closest(p);
-//	const Vec2& p2 = Line(e2bot.X, e2bot.Y, e2top.X, e2top.Y).closest(p);
-//
-//	if (p1.distanceFromSq(p) < p2.distanceFromSq(p))
-//	{
-//		pt.Z = e1bot.Z;
-//	}
-//	else
-//	{
-//		pt.Z = e2bot.Z;
-//	}
-//}
-//void ZFillFunc(ClipperLib::IntPoint& e1bot, ClipperLib::IntPoint& e1top, ClipperLib::IntPoint& e2bot, ClipperLib::IntPoint& e2top, ClipperLib::IntPoint& pt)
-//{
-//	const Vec2 pB(pt.X, pt.Y);
-//	
-//	const Vec2 pO1(e1bot.X, e1bot.Y);
-//	const Vec2 pA1(e1top.X, e1top.Y);
-//
-//	const Vec2 pO2(e2bot.X, e2bot.Y);
-//	const Vec2 pA2(e2top.X, e2top.Y);
-//
-//	if (getVerticalDistance(pO1, pA1, pB) < getVerticalDistance(pO2, pA2, pB))
-//	{
-//		pt.Z = e1bot.Z;
-//	}
-//	else
-//	{
-//		pt.Z = e2bot.Z;
-//	}
-//}
 void ZFillFunc(ClipperLib::IntPoint& e1bot, ClipperLib::IntPoint& e1top, ClipperLib::IntPoint& e2bot, ClipperLib::IntPoint& e2top, ClipperLib::IntPoint& pt)
 {
 	intersectionPoints.push_back(pt);
@@ -109,6 +74,21 @@ std::vector<Vertices> PathToPolygons(const ClipperLib::Path& path)
 	polygons.emplace_back(std::vector<ClipVertex>(ps.begin(), ps.end()));
 
 	return polygons;
+}
+
+bool IsClockWise(const Vertices& closedPath)
+{
+	double sum = 0;
+
+	for (int i = 0; i < closedPath.size(); ++i)
+	{
+		const auto& p1 = closedPath[i];
+		const auto& p2 = closedPath[(i + 1) % closedPath.size()];
+
+		sum += (p2.m_pos.x - p1.m_pos.x)*(p2.m_pos.y + p1.m_pos.y);
+	}
+
+	return sum < 0.0;
 }
 
 /*
@@ -179,21 +159,6 @@ double projectionLengthSq(const std::vector<Vec2>& openPath, const Line& line)
 
 	return minLengthPosA.distanceFromSq(minLengthPosB);
 }
-
-//bool IsClockWise(const Vertices& polygonInt)
-//{
-//	double sum = 0;
-//
-//	for (int i = 0; i < polygonInt.size(); ++i)
-//	{
-//		const auto& p1 = polygonInt[i];
-//		const auto& p2 = polygonInt[(i + 1) % polygonInt.size()];
-//
-//		sum += (p2.x - p1.x)*(p2.y + p1.y);
-//	}
-//
-//	return sum < 0.0;
-//}
 
 struct SegmentInfo
 {
@@ -293,12 +258,8 @@ public:
 				pp.push_back(m_anchorPoints.back().anchorPoint());
 			}
 
-			//LineString(pp).draw(Palette::Yellow, m_isClosed);
-
-			LineString(pp).draw(Color(isActive ? Palette::Yellow : Palette::White, 64), m_isClosed);
-
-			//Polygon(pp).draw(Color(Palette::White, 64));
-
+			LineString(pp).draw(Color(isActive ? Palette::Yellow : Palette::Black, 64), m_isClosed);
+			
 			if (isActive)
 			{
 				for (const auto& curveSegment : m_curveSegments)
@@ -455,17 +416,7 @@ public:
 
 		return result;
 	}
-
-	/*
-	多角形に変換(パスとの衝突点を考慮して分割する)
-	*/
-	/*ClipperLib::Path getPathIntersection(size_t startIndex,const BezierCurvePath& other)const
-	{
-		ClipperLib::Path result;
-
-		return result;
-	}*/
-
+	
 	bool isClosed()const
 	{
 		return m_isClosed;
@@ -489,12 +440,7 @@ public:
 		}
 		writer.nextLine();
 	}
-
-	void addHole()
-	{
-
-	}
-		
+			
 private:
 
 	void calcIntersections()
@@ -524,7 +470,7 @@ private:
 			}
 		}
 
-		Window::SetTitle(intersectionCount);
+		//LOG(L"intersectionCount: ", intersectionCount);
 	}
 
 	/*
@@ -551,9 +497,6 @@ private:
 	std::vector<AnchorPoint> m_anchorPoints;
 	std::vector<CurveSegment> m_curveSegments;
 
-	std::vector<std::vector<AnchorPoint>> m_holePoints;
-	std::vector<std::vector<CurveSegment>> m_holeSegments;
-
 	bool m_isClosed = false;
 };
 
@@ -561,7 +504,6 @@ class LineStringTree
 {
 public:
 
-	//using SegmentLoop = std::vector<CurveSegment>;
 	using SegmentLoop = std::vector<std::pair<CurveSegment, Line>>;
 
 	void draw()
@@ -587,21 +529,31 @@ public:
 			++m_drawIndex;
 		}
 
+		Window::SetTitle(L"Depth: ", m_drawDepth, L", Poly: ", m_drawIndex, L"/", m_loops.size());
+
 		drawImpl(m_drawDepth, 0, m_drawIndex);
 	}
 
+	void drawAll()
+	{
+		drawAllImpl();
+	}
+	
 	void add(const LineString& contour)
 	{
 		m_contours.push_back(contour);
 	}
-	void nextLineColor()
+
+	void nextLineColor(bool isHole)
 	{
-		m_lines.emplace_back();
+		//m_lines.emplace_back();
+		(isHole ? m_lineHoles : m_lines).emplace_back();
 	}
 
-	void addLineColor(const Line& line, const Color& color)
+	void addLineColor(bool isHole, const Line& line, const Color& color)
 	{
-		m_lines.back().emplace_back(line, color);
+		//m_lines.back().emplace_back(line, color);
+		(isHole ? m_lineHoles.back() : m_lines.back()).emplace_back(line, color);
 	}
 
 	void addColor(const Color& color)
@@ -615,21 +567,25 @@ public:
 		return m_childs.back();
 	}
 
-	void setHole(bool isHole)
+	void addSegment(bool isHole, const CurveSegment& curveSegment, const Line& line)
 	{
-		m_isHole = isHole;
-	}
-
-	void addSegment(const CurveSegment& curveSegment, const Line& line)
-	{
-		auto& curveSegments = m_loops.back();	
+		//auto& curveSegments = m_loops.back();	
+		auto& curveSegments = isHole ? m_loopHoles.back() : m_loops.back();
 		//curveSegments.push_back(curveSegment);
 		curveSegments.emplace_back(curveSegment, line);
 	}
 
-	void nextLoop()
+	void nextLoop(bool isHole)
 	{
-		m_loops.emplace_back();
+		(isHole ? m_loopHoles : m_loops).emplace_back();
+		/*if (isHole)
+		{
+			m_loopHoles.emplace_back();
+		}
+		else
+		{
+			m_loops.emplace_back();
+		}*/
 	}
 
 private:
@@ -644,7 +600,7 @@ private:
 		if (maxDepth == currentDepth)
 		{
 			//直線描画（デバッグ用）
-			if (Input::KeyShift.pressed)
+			/*if (Input::KeyShift.pressed)
 			{
 				const int currentDrawIndex = (drawIndex % m_contours.size());
 				
@@ -654,7 +610,7 @@ private:
 					{
 						if (i != currentDrawIndex)continue;
 
-						Window::SetTitle(L"Depth: ", currentDepth, L", Line: ", currentDrawIndex, L"/", m_contours.size(), L", AB: ", Line(*m_contours[i].begin(), *m_contours[i].rbegin()), L", Mouse: ", Mouse::Pos());
+						//Window::SetTitle(L"Depth: ", currentDepth, L", Line: ", currentDrawIndex, L"/", m_contours.size(), L", AB: ", Line(*m_contours[i].begin(), *m_contours[i].rbegin()), L", Mouse: ", Mouse::Pos());
 
 						for (int line = 0; line < m_contours[i].num_lines; ++line)
 						{
@@ -672,13 +628,13 @@ private:
 					{
 						if (i != currentDrawIndex)continue;
 
-						Window::SetTitle(L"Depth: ", currentDepth, L", Line: ", currentDrawIndex, L"/", m_contours.size(), L", AB: ", Line(*m_contours[i].begin(), *m_contours[i].rbegin()), L", Mouse: ", Mouse::Pos());
+						//Window::SetTitle(L"Depth: ", currentDepth, L", Line: ", currentDrawIndex, L"/", m_contours.size(), L", AB: ", Line(*m_contours[i].begin(), *m_contours[i].rbegin()), L", Mouse: ", Mouse::Pos());
 
 						m_contours[i].draw(m_colors[i]);
 					}
 				}
-			}
-			/*if (Input::KeyShift.pressed)
+			}*/
+			if (Input::KeyShift.pressed)
 			{
 				const int currentDrawIndex = (drawIndex % m_lines.size());
 
@@ -714,12 +670,14 @@ private:
 						}
 					}
 				}
-			}*/
+			}
 			//カーブ描画
 			else
 			{
+				const auto getColor = [&](bool isHole) {return isHole ? Palette::Red : Palette::Cyan; };
+
 				const int currentDrawIndex = (drawIndex % m_loops.size());
-				Window::SetTitle(L"Depth: ", currentDepth, L", Vert: ", currentDrawIndex, L" of ", m_loops.size());
+				//Window::SetTitle(L"Depth: ", currentDepth, L", Vert: ", currentDrawIndex, L" of ", m_loops.size());
 
 				for (auto i : step(m_loops.size()))
 				{
@@ -737,14 +695,14 @@ private:
 						}
 						else
 						{
-							curveSegment.curve().draw(30, HSV(15 * i, 1, 1), curveSegment.range().first, curveSegment.range().second);
+							//curveSegment.curve().draw(30, HSV(15 * i, 1, 1), curveSegment.range().first, curveSegment.range().second);
+							//curveSegment.curve().draw(30, getColor(m_loopIsHole[i]), curveSegment.range().first, curveSegment.range().second);
+							curveSegment.curve().draw(30, Palette::Cyan, curveSegment.range().first, curveSegment.range().second);
 							if (Input::KeyC.pressed)
 							{
 								Circle(curveSegmentPair.second.begin, 5).drawFrame(1.0, 0.0, HSV(15 * i, 1, 1));
 								Circle(curveSegmentPair.second.end, 5).drawFrame(1.0, 0.0, HSV(15 * i, 1, 1));
-
 							}
-							
 						}
 					}
 				}
@@ -757,14 +715,83 @@ private:
 		}
 	}
 
+	void drawAllImpl()
+	{
+		//直線描画（デバッグ用）
+		if (Input::KeyShift.pressed)
+		{
+			if (Input::KeyControl.pressed)
+			{
+				for (auto i : step(m_contours.size()))
+				{
+					for (int line = 0; line < m_contours[i].num_lines; ++line)
+					{
+						m_contours[i].line(line).drawArrow(1.0, { 5.0,5.0 }, m_colors[i]);
+						if (line == 0)
+						{
+							Circle(m_contours[i].point(0), 5).draw(m_colors[i]);
+						}
+					}
+				}
+			}
+			else
+			{
+				for (auto i : step(m_contours.size()))
+				{
+					m_contours[i].draw(m_colors[i]);
+				}
+			}
+		}
+		//カーブ描画
+		else
+		{
+			const auto getColor = [&](bool isHole) {return isHole ? Palette::Red : Palette::Cyan; };
+
+			for (auto i : step(m_loops.size()))
+			{
+				for (const auto& curveSegmentPair : m_loops[i])
+				{
+					const auto& curveSegment = curveSegmentPair.first;
+
+					if (Input::KeyControl.pressed)
+					{
+						//curveSegment.curve().drawArrow(8, getColor(m_loopIsHole[i]), curveSegment.range().first, curveSegment.range().second);
+						curveSegment.curve().drawArrow(8, Palette::Cyan, curveSegment.range().first, curveSegment.range().second);
+					}
+					else
+					{
+						//curveSegment.curve().draw(30, getColor(m_loopIsHole[i]), curveSegment.range().first, curveSegment.range().second);
+						curveSegment.curve().draw(30, Palette::Cyan, curveSegment.range().first, curveSegment.range().second);
+						if (Input::KeyC.pressed)
+						{
+							/*Circle(curveSegmentPair.second.begin, 5).drawFrame(1.0, 0.0, getColor(m_loopIsHole[i]));
+							Circle(curveSegmentPair.second.end, 5).drawFrame(1.0, 0.0, getColor(m_loopIsHole[i]));*/
+							Circle(curveSegmentPair.second.begin, 5).drawFrame(1.0, 0.0, Palette::Cyan);
+							Circle(curveSegmentPair.second.end, 5).drawFrame(1.0, 0.0, Palette::Cyan);
+						}
+					}
+				}
+			}
+		}
+
+		for (auto p : m_childs)
+		{
+			p->drawAllImpl();
+		}
+	}
+
 	std::vector<SegmentLoop> m_loops;
+	std::vector<SegmentLoop> m_loopHoles;
+	//std::vector<char> m_loopIsHole;
+	
 	//std::vector<std::pair<SegmentLoop,Line>> m_loops;
 	int m_drawIndex = 0;
 	int m_drawDepth = 0;
-	bool m_isHole = false;
+	//bool m_isHole = false;
 
 	std::vector<LineString> m_contours;
 	std::vector<std::vector<std::pair<Line, Color>>> m_lines;
+	std::vector<std::vector<std::pair<Line, Color>>> m_lineHoles;
 	std::vector<Color> m_colors;
 	std::vector<std::shared_ptr<LineStringTree>> m_childs;
 };
@@ -795,15 +822,10 @@ public:
 		if (Input::KeyEnter.clicked && 3 == m_paths.size())
 		{
 			size_t indexOffset = 1;
-
-			//const int divNum = 10000;
-			const int divNum = 25;
 			
-			//auto path1 = m_paths[0].getPath(indexOffset, divNum);
 			auto path1 = m_paths[0].getPathHighPrecision(indexOffset, 5.0);
 			indexOffset += m_paths[0].numOfSegments();
 
-			//auto path2 = m_paths[1].getPath(indexOffset, divNum);
 			auto path2 = m_paths[1].getPathHighPrecision(indexOffset, 5.0);
 			indexOffset += m_paths[1].numOfSegments();
 
@@ -816,14 +838,14 @@ public:
 			clipper.AddPath(path1, ClipperLib::PolyType::ptSubject, true);
 			clipper.AddPath(path2, ClipperLib::PolyType::ptClip, true);
 
-			ClipperLib::PolyTree resultPolyTree;
-			/*ClipperLib::Paths resultPaths;
-			clipper.Execute(ClipperLib::ClipType::ctUnion, resultPaths);*/
+			//ClipperLib::PolyTree resultPolyTree;
 			ClipperLib::Paths resultPaths;
+			//clipper.Execute(ClipperLib::ClipType::ctUnion, resultPaths);
 			//clipper.Execute(ClipperLib::ClipType::ctUnion, resultPolyTree);
 			//clipper.Execute(ClipperLib::ClipType::ctDifference, resultPolyTree);
 			//clipper.Execute(ClipperLib::ClipType::ctIntersection, resultPolyTree);
-			clipper.Execute(ClipperLib::ClipType::ctXor, resultPolyTree);
+			//clipper.Execute(ClipperLib::ClipType::ctXor, resultPolyTree);
+			clipper.Execute(ClipperLib::ClipType::ctXor, resultPaths);
 			
 			/*
 			結果から新たな曲線を構築
@@ -832,7 +854,8 @@ public:
 			//drawCurves = makeResultPath(resultPaths);
 			//m_segmentInfos = makeResultPath(resultPaths);
 			
-			m_pTree = makeResult(resultPolyTree);
+			//m_pTree = makeResult(resultPolyTree);
+			m_pTree = makeResultPath(resultPaths);
 			
 			/*m_paths.emplace_back();
 			unpackZIndex;*/
@@ -939,6 +962,7 @@ public:
 		else if (m_pTree)
 		{
 			m_pTree->draw();
+			//m_pTree->drawAll();
 		}
 
 		if (Input::KeyD.pressed)
@@ -1127,7 +1151,6 @@ private:
 		2. その位置が折れ線の中にあるような垂線について、最小の長さを持つ垂線の足の位置が射影先となる		
 		*/
 
-
 		/*const Line line(p1.m_pos, p2.m_pos);
 		const double lengthSq1 = projectionLengthSq(getSegmentPath(lower1), line);
 		const double lengthSq2 = projectionLengthSq(getSegmentPath(lower2), line);
@@ -1202,7 +1225,7 @@ private:
 			LOG(L"Debug: lengthSq2=", lengthSq2);
 		}
 
-		//p1とp2の間に連続している曲線の境界点が存在する場合、新たに分割点を挿入する必要がある
+		//p1とp2の間に連続している曲線の境界点が存在する場合、分割点を移動する必要がある
 		if (lengthSq1 == 0 && lengthSq2 == 0)
 		{
 			if (curve1T1 && curve2T2)
@@ -1212,8 +1235,11 @@ private:
 				curve1T2 = curve1Opt.value().closestPoint(p2.m_pos);
 				curve2T1 = curve2Opt.value().closestPoint(p1.m_pos);
 				*/
-				p2.m_pos = curve2Opt.value().get(curve2Opt.value().closestPoint(p1.m_pos));
+				const Vec2 moveTo = curve2Opt.value().get(curve2Opt.value().closestPoint(p1.m_pos));
+				LOG(L"Path point ", p2.m_pos, L" is moved to ", moveTo);
+				p2.m_pos = moveTo;
 				p2.m_Z = lower2;
+
 				return lower1;
 			}
 			if (curve1T2 && curve2T1)
@@ -1264,16 +1290,10 @@ private:
 		return none;
 	}
 
-	std::vector<SegmentInfo> makeResultPath(ClipperLib::Paths& paths)
+	//std::vector<SegmentInfo> makeResultPath(ClipperLib::Paths& paths)
+	std::shared_ptr<LineStringTree> makeResultPath(ClipperLib::Paths& paths)
 	{
-		struct CurveInfo
-		{
-			size_t pathIndex;
-			size_t segmentIndex;
-			double t;
-		};
-
-		std::vector<Vec2> tempPoints;
+		/*std::vector<Vec2> tempPoints;
 		int tempZ = 0;
 		for (auto& path : paths)
 		{
@@ -1332,7 +1352,130 @@ private:
 			}
 		}
 
-		return segmentInfos;
+		return segmentInfos;*/
+
+		std::shared_ptr<LineStringTree> pTree = std::make_shared<LineStringTree>();
+
+		std::vector<char> isHoles;
+		
+		for (auto& contour : paths)
+		{
+			const auto loops = PathToPolygons(contour);
+
+			//ポリゴン取得（デバッグ用・穴の包含判定用）
+			{
+				const auto toInt = [](ClipperLib::cInt z)
+				{
+					return static_cast<int>(z&INT32_MAX) + static_cast<int>(z >> 32);
+				};
+
+				/*int count = 0;
+				for (auto& loop : loops)
+				{
+					ClipperLib::cInt tempZ = 0;
+					std::vector<Vec2> tempPoints;
+					for (auto& point : loop)
+					{
+						if (!tempPoints.empty() && tempZ != point.m_Z)
+						{
+							tempPoints.push_back(point.m_pos);
+							pTree->add(LineString(tempPoints));
+							pTree->addColor(HSV(15 * toInt(tempZ), 1, 1));
+							++count;
+							tempPoints.clear();
+						}
+
+						tempPoints.push_back(point.m_pos);
+						tempZ = point.m_Z;
+					}
+
+					if (!tempPoints.empty())
+					{
+						pTree->add(LineString(tempPoints));
+						pTree->addColor(HSV(15 * toInt(tempZ), 1, 1));
+						++count;
+						tempPoints.clear();
+					}
+				}*/
+				
+				int count = 0;
+				for (auto& loop : loops)
+				{
+					isHoles.push_back(!IsClockWise(loop));
+
+					pTree->nextLineColor(isHoles.back());
+
+					for (size_t i = 0; i < loop.size(); ++i)
+					{
+						pTree->addLineColor(isHoles.back(), Line(loop[i].m_pos, loop[(i + 1) % loop.size()].m_pos), HSV(15.0*count, 1, 1));
+					}
+
+					++count;
+				}
+			}
+
+			using Curves = std::vector<ClipVertex>;
+			std::vector<Curves> loopCurves;
+
+			for (const auto& loop : loops)
+			{
+				Curves curves;
+				for (auto& point : loop)
+				{
+					if (curves.empty() || curves.back().m_Z != point.m_Z)
+					{
+						curves.push_back(point);
+					}
+				}
+				loopCurves.push_back(curves);
+			}
+
+			int loopCount = 0;
+			std::vector<SegmentInfo> segmentInfos;
+			for (auto& loopCurve : loopCurves)
+			{
+				pTree->nextLoop(isHoles[loopCount]);
+
+				for (auto i : step(loopCurve.size()))
+				{
+					/*const Vec2 startPos = loopCurve[i].m_pos;
+					const Vec2 endPos = loopCurve[(i + 1) % loopCurve.size()].m_pos;*/
+
+					const int zIndex = combineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()]);
+					const Vec2 startPos = loopCurve[i].m_pos;
+					const Vec2 endPos = loopCurve[(i + 1) % loopCurve.size()].m_pos;
+
+					//const int zIndex = combineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()]);
+					//const int zIndex = combineZIndex(loopCurve, i, (i + 1) % loopCurve.size());
+
+					//m_lineForDebug.push_back(Line(startPos, endPos));
+					//linesForDebug.push_back(Line(startPos, endPos));
+
+					m_segmentPoss.push_back(startPos);
+
+					if (const auto indicesOpt = unpackZIndex(zIndex))
+					{
+						const auto& indices = indicesOpt.value();
+
+						const auto curve = m_paths[indices.first].segment(indices.second).curve();
+
+						const double startT = curve.closestPoint(startPos);
+						const double endT = curve.closestPoint(endPos);
+
+						/*if (zIndex == 39 || zIndex == 40)
+						{
+						linesForDebug.push_back(Line(curve(startT), curve(endT)));
+						}*/
+
+						pTree->addSegment(isHoles[loopCount], CurveSegment(curve, startT, endT), Line(startPos, endPos));
+					}
+				}
+
+				++loopCount;
+			}
+		}
+
+		return pTree;
 	}
 
 	std::shared_ptr<LineStringTree> makeResult(ClipperLib::PolyTree& polyTree)
@@ -1367,6 +1510,8 @@ private:
 					tempPoints.clear();
 				}
 			}*/
+
+			std::vector<char> isHoles;
 			{
 				const auto loops = PathToPolygons(node->Contour);
 
@@ -1378,6 +1523,8 @@ private:
 				int count = 0;
 				for (auto& loop : loops)
 				{
+					isHoles.push_back(!IsClockWise(loop));
+
 					ClipperLib::cInt tempZ = 0;
 					std::vector<Vec2> tempPoints;
 					for (auto& point : loop)
@@ -1432,9 +1579,12 @@ private:
 
 			//曲線情報
 			{
-				pTree->setHole(node->IsHole());
+				//pTree->setHole(node->IsHole());
+				
 
 				const auto loops = PathToPolygons(node->Contour);
+
+				int loopCount = 0;
 
 				/*
 				std::vector<std::pair<Point, int>> curves;
@@ -1487,7 +1637,7 @@ private:
 				std::vector<SegmentInfo> segmentInfos;
 				for (auto& loopCurve : loopCurves)
 				{
-					pTree->nextLoop();
+					pTree->nextLoop(isHoles[loopCount]);
 
 					for (auto i : step(loopCurve.size()))
 					{
@@ -1520,7 +1670,7 @@ private:
 								linesForDebug.push_back(Line(curve(startT), curve(endT)));
 							}*/
 							
-							pTree->addSegment(CurveSegment(curve, startT, endT), Line(startPos, endPos));
+							pTree->addSegment(isHoles[loopCount], CurveSegment(curve, startT, endT), Line(startPos, endPos));
 						}
 					}
 				}

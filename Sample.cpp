@@ -3,6 +3,8 @@
 
 void Main()
 {
+	Graphics::SetBackground(Palette::White);
+
 	BezierPathClipper clipper;
 
 	while (System::Update())
