@@ -5,6 +5,7 @@
 #include "include/BoundingRect.hpp"
 #include "include/BezierCurve.hpp"
 #include "include/CurveSegment.hpp"
+#include "include/PolygonSubtractor.hpp"
 
 #include "include/clipper/clipper.hpp"
 
@@ -47,9 +48,52 @@ struct ClipVertex
 	ClipperLib::cInt m_Z;
 };
 
+inline void TestSave(const ClipperLib::Path& pathA, const ClipperLib::Path& pathB,const String& filename)
+{
+	std::vector<Vec2> psA, psB;
+
+	for (const auto& point : pathA)
+	{
+		psA.push_back(ClipVertex(point).m_pos);
+	}
+	for (const auto& point : pathB)
+	{
+		psB.push_back(ClipVertex(point).m_pos);
+	}
+
+	Image image(Window::Size(), Palette::White);
+
+	LineString(psA).write(image, 2.0, Palette::Blue);
+	LineString(psB).write(image, 2.0, Palette::Red);
+
+	image.savePNG(filename);
+}
+
+inline void TestSave2(const std::vector<ClipperLib::Path>& paths, const String& filename)
+{
+	Image image(Window::Size(), Palette::White);
+
+	for (const auto& pathA : paths)
+	{
+		std::vector<Vec2> psA;
+
+		for (const auto& point : pathA)
+		{
+			psA.push_back(ClipVertex(point).m_pos);
+		}
+
+		for (size_t i = 0; i < psA.size(); ++i)
+		{
+			Line(psA[i], psA[(i + 1) % psA.size()]).writeArrow(image, 1.0, { 5.0,5.0 }, Palette::Orange);
+		}
+	}
+
+	image.savePNG(filename);
+}
+
 using Vertices = std::vector<ClipVertex>;
 
-std::vector<Vertices> PathToPolygons(const ClipperLib::Path& path)
+std::vector<Vertices> PathToPolygons(const ClipperLib::Path& path, bool division = true)
 {
 	std::vector<ClipVertex> ps;
 	std::vector<Vertices> polygons;
@@ -61,7 +105,7 @@ std::vector<Vertices> PathToPolygons(const ClipperLib::Path& path)
 
 		for (int previous = static_cast<int>(ps.size()) - 2; 0 <= previous; --previous)
 		{
-			if (ps[previous].samePos(currentPos))
+			if (division && ps[previous].samePos(currentPos))
 			{
 				polygons.emplace_back(std::vector<ClipVertex>(ps.cbegin() + previous + 1, ps.cend()));
 				ps.erase(ps.begin() + previous + 1, ps.end());
@@ -1171,19 +1215,23 @@ public:
 						size_t currentIndexOffset = indexOffset;
 						auto pathLoop = m_pTree->getLoopPath(loopIndex, currentIndexOffset, polygonizeInterval);
 
-						ClipperLib::Clipper clipper;
+						/*ClipperLib::Clipper clipper;
 						clipper.ZFillFunction(ZFillFunc);
 
 						clipper.AddPath(pathLoop, ClipperLib::PolyType::ptSubject, true);
 						clipper.AddPath(pathHole, ClipperLib::PolyType::ptClip, true);
 
 						ClipperLib::Paths resultPaths;
-						clipper.Execute(ClipperLib::ClipType::ctXor, resultPaths);
+						clipper.Execute(ClipperLib::ClipType::ctXor, resultPaths);*/
 
-						std::shared_ptr<LineStringTree> pTree2 = MakeResultPath(resultPaths, std::vector<SegmentsHolder>({ holeSegmentsHolder, loopSegmentsHolder }));
+						ClipperLib::Paths resultPaths = PolygonSubtract(pathLoop, pathHole);
+
+						std::shared_ptr<LineStringTree> pTree2 = MakeResultPathWithoutDivision(resultPaths, std::vector<SegmentsHolder>({ holeSegmentsHolder, loopSegmentsHolder }));
 
 						++processCount;
-						m_pTree->dump(Format(L"process_", processCount, L".png"));
+						//m_pTree->dump(Format(L"process_", processCount, L".png"));
+						TestSave(pathLoop, pathHole, Format(L"process_", processCount, L".png"));
+						TestSave2(resultPaths, Format(L"process_", processCount, L"_result.png"));
 
 						if (pTree2->hasAnyHole())
 						{
@@ -1586,6 +1634,97 @@ private:
 						tempPoints.clear();
 					}
 				}*/
+
+				int count = 0;
+				for (const auto& loop : loops)
+				{
+					isHoles.push_back(!IsClockWise(loop));
+
+					pTree->nextLineColor(isHoles.back());
+
+					for (size_t i = 0; i < loop.size(); ++i)
+					{
+						//pTree->addLineColor(isHoles.back(), Line(loop[i].m_pos, loop[(i + 1) % loop.size()].m_pos), HSV(15.0*count, 1, 1));
+						pTree->addLineColor(isHoles.back(), loop[i].m_pos, HSV(15.0*count, 1, 1));
+					}
+
+					pTree->logger(Format(L"A(", count, L")"));
+
+					++count;
+				}
+			}
+
+			using Curves = std::vector<ClipVertex>;
+			std::vector<Curves> loopCurves;
+
+			for (const auto& loop : loops)
+			{
+				Curves curves;
+				for (const auto& point : loop)
+				{
+					if (curves.empty() || curves.back().m_Z != point.m_Z)
+					{
+						curves.push_back(point);
+					}
+				}
+				loopCurves.push_back(curves);
+			}
+
+			int loopCount = 0;
+			std::vector<SegmentInfo> segmentInfos;
+			for (auto& loopCurve : loopCurves)
+			{
+				pTree->nextLoop(isHoles[loopCount]);
+
+				for (auto i : step(loopCurve.size()))
+				{
+					const int zIndex = CombineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()], originalPaths);
+
+					const Vec2 startPos = loopCurve[i].m_pos;
+					const Vec2 endPos = loopCurve[(i + 1) % loopCurve.size()].m_pos;
+
+					//m_segmentPoss.push_back(startPos);
+
+					if (const auto indicesOpt = UnpackZIndex(zIndex, originalPaths))
+					{
+						const auto& indices = indicesOpt.value();
+
+						const auto curve = originalPaths[indices.first].segment(indices.second).curve();
+
+						const double startT = curve.closestPoint(startPos);
+						const double endT = curve.closestPoint(endPos);
+
+						pTree->addSegment(isHoles[loopCount], CurveSegment(curve, startT, endT), Line(startPos, endPos));
+					}
+				}
+
+				pTree->logger(Format(L"B(", loopCount, L")"));
+
+				++loopCount;
+			}
+		}
+
+		return pTree;
+	}
+
+	template<class PathHolderType>
+	static std::shared_ptr<LineStringTree> MakeResultPathWithoutDivision(const ClipperLib::Paths& resultPaths, const PathHolderType& originalPaths)
+	{
+		std::shared_ptr<LineStringTree> pTree = std::make_shared<LineStringTree>();
+
+		for (const auto& contour : resultPaths)
+		{
+			//MakeResultPathとの差分はここだけ（いまのところ）
+			const auto loops = PathToPolygons(contour, false);
+
+			std::vector<char> isHoles;
+
+			//ポリゴン取得（デバッグ用・穴の包含判定用）
+			{
+				const auto toInt = [](ClipperLib::cInt z)
+				{
+					return static_cast<int>(z&INT32_MAX) + static_cast<int>(z >> 32);
+				};
 
 				int count = 0;
 				for (const auto& loop : loops)
