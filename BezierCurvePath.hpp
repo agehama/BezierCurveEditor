@@ -73,6 +73,7 @@ inline void TestSave2(const std::vector<ClipperLib::Path>& paths, const String& 
 {
 	Image image(Window::Size(), Palette::White);
 
+	int count = 0;
 	for (const auto& pathA : paths)
 	{
 		std::vector<Vec2> psA;
@@ -84,8 +85,9 @@ inline void TestSave2(const std::vector<ClipperLib::Path>& paths, const String& 
 
 		for (size_t i = 0; i < psA.size(); ++i)
 		{
-			Line(psA[i], psA[(i + 1) % psA.size()]).writeArrow(image, 1.0, { 5.0,5.0 }, Palette::Orange);
+			Line(psA[i], psA[(i + 1) % psA.size()]).writeArrow(image, 1.0, { 5.0,5.0 }, HSV(30 * count, 1, 1));
 		}
+		++count;
 	}
 
 	image.savePNG(filename);

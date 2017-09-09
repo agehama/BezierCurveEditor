@@ -1,3 +1,5 @@
+#include <fstream>
+
 #include <Siv3D.hpp>
 
 #include "PolygonSubtractor.hpp"
@@ -385,6 +387,32 @@ public:
 	//poly1 - poly2
 	std::vector<std::vector<ClipperLib::IntPoint>> setPolygons(const std::vector<ClipperLib::IntPoint>& poly1, const std::vector<ClipperLib::IntPoint>& poly2)
 	{
+		/*static int passCount = 0;
+
+		if (passCount == 3)
+		{
+			const auto baseName = FileSystem::BaseName(FileSystem::UniquePath());
+			std::ofstream ofs1(CharacterSet::Narrow(
+				baseName + L"_poly1.txt"
+			));
+			std::ofstream ofs2(CharacterSet::Narrow(
+				baseName + L"_poly2.txt"
+			));
+
+			for (const auto& p : poly1)
+			{
+				ofs1 << p.X << " " << p.Y << " " << p.Z << "\n";
+			}
+			for (const auto& p : poly2)
+			{
+				ofs2 << p.X << " " << p.Y << " " << p.Z << "\n";
+			}
+
+			return{};
+		}
+
+		++passCount;*/
+		
 		const Polygon subjectPoly = ToPoly(poly1);
 		const Polygon clipPoly = ToPoly(poly2);
 
@@ -618,7 +646,9 @@ public:
 
 		/*
 		エッジコピー＋連結削除により解決する方法
-		分割線をまたぐリンク自体が存在しなくなるので、中点の挿入は必要ない
+		分割線をまたぐリンク自体を削除するので、中点の挿入は必要ない
+
+		追記：やっぱり中点の挿入は必要（差分後のポリゴンが poly1 の頂点を一つも含まないケースでは中点を挿入しないと全て False になってしまう）
 		*/
 		{
 			std::vector<std::vector<std::pair<ClipperLib::IntPoint, size_t>>> intersectionListLines2(poly2.size());
@@ -654,7 +684,9 @@ public:
 			};
 
 			//std::vector<std::pair<ClipperLib::IntPoint, size_t>> transitionPoints;
-			std::vector<TransitionPoint> transitionPointsInPoly2;
+			//std::vector<TransitionPoint> transitionPointsInPoly2;
+
+			enum TransitionLineType { Inner, Outer, Equal, Unknown };
 			
 			class TransitionLines
 			{
@@ -683,14 +715,110 @@ public:
 
 				void solve(const std::vector<GraphNode>& nodes, const std::vector<size_t>& loopPoints2, const Polygon& poly1)
 				{
-					//m_transitionPoints の各点を loopPoints2 に沿う形（つまり poly2 に沿って時計回り）にソート
-					std::sort(m_transitionPoints.begin(), m_transitionPoints.end(), 
-						[&](const TransitionPointLine& a, const TransitionPointLine& b) 
+					const size_t poly1Size = poly1.outer().size();
+
+					//m_transitionPoints の各点を loopPoints2 に沿う形（つまり poly2 に沿って時計回り）にソート	
+					std::sort(m_transitionPoints.begin(), m_transitionPoints.end(),
+						[&](const TransitionPointLine& a, const TransitionPointLine& b)
 					{
-						return indexOfLoopPoints2(a.first.poly2Index, loopPoints2).value() < indexOfLoopPoints2(b.first.poly2Index, loopPoints2).value();
+						const auto aIndex = a.first.poly2Index + (a.first.isCrossPoint() ? 0 : poly1Size);
+						const auto bIndex = b.first.poly2Index + (b.first.isCrossPoint() ? 0 : poly1Size);
+						return indexOfLoopPoints2(aIndex, loopPoints2).value() < indexOfLoopPoints2(bIndex, loopPoints2).value();
 					});
 
+					//std::unique(m_transitionPoints.begin(), m_transitionPoints.end(),
+					//	[&](const TransitionPointLine& a, const TransitionPointLine& b)
+					//{
+					//	
+					//	//a.first.poly1Index_1 == b.first.poly1Index_1 && a.first.poly2Index == b.first.poly2Index && a.first.poly1Index_2 == b.first.poly1Index_2;
+					//	const auto aIndex = a.first.poly2Index + (a.first.isCrossPoint() ? 0 : poly1Size);
+					//	const auto bIndex = b.first.poly2Index + (b.first.isCrossPoint() ? 0 : poly1Size);
+					//	return indexOfLoopPoints2(aIndex, loopPoints2).value() < indexOfLoopPoints2(bIndex, loopPoints2).value();
+					//});
 
+
+
+					solveLoop(nodes, loopPoints2, poly1);
+					solveInOut(nodes, loopPoints2, poly1);
+				}
+
+				const TransitionPoint& beginOfLine(int lineIndex)const
+				{
+					return m_transitionPoints[(lineIndex + size() - 1) % size()].first;
+				}
+
+				const TransitionPoint& endOfLine(int lineIndex)const
+				{
+					return m_transitionPoints[lineIndex].first;
+				}
+
+				int size()const
+				{
+					return static_cast<int>(m_transitionPoints.size());
+				}
+
+				//loopPoints2 は交点も含みうる（交点のインデックスはpoly1,poly2より後ろにある）ことからソートすることができないので線形探索を行う
+				Optional<size_t> indexOfLoopPoints2(size_t value, const std::vector<size_t>& loopPoints2)const
+				{
+					for (auto i : step(loopPoints2.size()))
+					{
+						if (loopPoints2[i] == value)
+						{
+							return i;
+						}
+					}
+
+					return none;
+				}
+
+				size_t findBeginOfLoopPoints2(int lineIndex, const std::vector<size_t>& loopPoints2, size_t poly1Size)const
+				{
+					//const size_t beginIndex = beginOfLine(lineIndex).poly2Index;
+					const size_t beginIndex = getNodeIndex(beginOfLine(lineIndex), poly1Size);
+					const size_t beginLoopIndex2 = indexOfLoopPoints2(beginIndex, loopPoints2).value();
+
+					return beginLoopIndex2;
+				}
+
+				//必ず findBeginOfLoopPoints2 < findEndOfLoopPoints2 となる結果を返す
+				//インデックスに変換するには loopPoints2.size() で剰余を取る
+				size_t findEndOfLoopPoints2(int lineIndex, const std::vector<size_t>& loopPoints2, size_t poly1Size)const
+				{
+					//const size_t endIndex = endOfLine(lineIndex).poly2Index;
+					const size_t endIndex = getNodeIndex(endOfLine(lineIndex), poly1Size);
+					const size_t endLoopIndex2 = indexOfLoopPoints2(endIndex, loopPoints2).value() + loopPoints2.size();
+
+					return endLoopIndex2;
+				}
+
+				TransitionLineType getType(int lineIndex)const
+				{
+					return m_transitionPoints[lineIndex].second;
+				}
+
+				size_t getNodeIndex(const TransitionPoint & a, size_t poly1Size)const
+				{
+					return a.poly2Index + (a.isCrossPoint() ? 0 : poly1Size);
+				};
+
+
+			private:
+
+				/*
+				連続したTransitionPointについては、その間に含まれる線が内側か外側かを別に判定する必要がある
+
+				対応する：
+				・連続した二つの同一なTransitionPoint
+
+				対応しない：
+				・共有点1 - 交点1 - 交点2 - 共有点1　のように間に別の点を挟む閉路
+				・連続した三つ以上の同一なTransitionPoint
+
+				solveInOutで代替可能
+				*/
+				void solveLoop(const std::vector<GraphNode>& nodes, const std::vector<size_t>& loopPoints2, const Polygon& poly1) {}
+				/*void solveLoop(const std::vector<GraphNode>& nodes, const std::vector<size_t>& loopPoints2, const Polygon& poly1)
+				{
 					for (int i = 0; i < size(); ++i)
 					{
 						if (m_transitionPoints[i].second != Unknown)
@@ -700,6 +828,37 @@ public:
 
 						const size_t beginIndex = beginOfLine(i).poly2Index;
 						const size_t endIndex = endOfLine(i).poly2Index;
+
+						const size_t beginLoopIndex2 = indexOfLoopPoints2(beginIndex, loopPoints2).value();
+						const size_t endLoopIndex2 = indexOfLoopPoints2(endIndex, loopPoints2).value() + loopPoints2.size();
+						const size_t numOfPoints = (endLoopIndex2 - beginLoopIndex2) % loopPoints2.size();
+
+						if (nodes[loopPoints2[beginLoopIndex2]].m_pos == nodes[loopPoints2[endLoopIndex2]].m_pos)
+						{
+							const auto samplePoint = nodes[loopPoints2[(beginLoopIndex2 + 1) % loopPoints2.size()]].m_pos;
+							m_transitionPoints[i].second = transitionLineType(samplePoint);
+						}
+					}
+				}*/
+
+				/*
+				各TransitionPoint間の線がpoly1の内側か外側かを判定する
+				*/
+				void solveInOut(const std::vector<GraphNode>& nodes, const std::vector<size_t>& loopPoints2, const Polygon& poly1)
+				{
+					const size_t poly1Size = poly1.outer().size();
+
+					for (int i = 0; i < size(); ++i)
+					{
+						if (m_transitionPoints[i].second != Unknown)
+						{
+							continue;
+						}
+
+						/*const size_t beginIndex = beginOfLine(i).poly2Index;
+						const size_t endIndex = endOfLine(i).poly2Index;*/
+						const size_t beginIndex = getNodeIndex(beginOfLine(i), poly1Size);
+						const size_t endIndex = getNodeIndex(endOfLine(i), poly1Size);
 
 						const size_t beginLoopIndex2 = indexOfLoopPoints2(beginIndex, loopPoints2).value();
 						const size_t endLoopIndex2 = indexOfLoopPoints2(endIndex, loopPoints2).value() + loopPoints2.size();
@@ -725,58 +884,6 @@ public:
 						}
 					}
 				}
-
-				const TransitionPoint& beginOfLine(int lineIndex)const
-				{
-					return m_transitionPoints[(lineIndex + size() - 1) % size()].first;
-				}
-
-				const TransitionPoint& endOfLine(int lineIndex)const
-				{
-					return m_transitionPoints[lineIndex].first;
-				}
-
-				int size()const
-				{
-					return static_cast<int>(m_transitionPoints.size());
-				}
-
-				//LinearSearch
-				//loopPoints2 は交点も含みうる（そして交点のインデックスは後ろの方にある）ため昇順に並べることができない
-				Optional<size_t> indexOfLoopPoints2(size_t value, const std::vector<size_t>& loopPoints2)const
-				{
-					for (auto i : step(loopPoints2.size()))
-					{
-						if (loopPoints2[i] == value)
-						{
-							return i;
-						}
-					}
-
-					return none;
-				}
-
-				size_t findBeginOfLoopPoints2(int lineIndex, const std::vector<size_t>& loopPoints2)const
-				{
-					const size_t beginIndex = beginOfLine(lineIndex).poly2Index;
-					const size_t beginLoopIndex2 = indexOfLoopPoints2(beginIndex, loopPoints2).value();
-
-					return beginLoopIndex2;
-				}
-
-				//必ず findBeginOfLoopPoints2 < findEndOfLoopPoints2 となる結果を返す
-				//したがってインデックスとして利用するには loopPoints2.size() で剰余を取る
-				size_t findEndOfLoopPoints2(int lineIndex, const std::vector<size_t>& loopPoints2)const
-				{
-					const size_t endIndex = endOfLine(lineIndex).poly2Index;
-					const size_t endLoopIndex2 = indexOfLoopPoints2(endIndex, loopPoints2).value() + loopPoints2.size();
-
-					return endLoopIndex2;
-				}
-
-			private:
-
-				enum TransitionLineType { Inner, Outer, Equal, Unknown };
 
 				using TransitionPointLine = std::pair<TransitionPoint, TransitionLineType>;
 				
@@ -808,7 +915,54 @@ public:
 
 					const Line line2 = ToLine(poly2[l2Begin], poly2[l2End]);
 
-					if (auto crossPointOpt = line1.intersectsAt(line2))
+					if (IsSamePos(poly1[l1Begin], poly2[l2Begin]) && IsSamePos(poly1[l1End], poly2[l2End])
+						|| IsSamePos(poly1[l1Begin], poly2[l2End]) && IsSamePos(poly1[l1End], poly2[l2Begin]))
+					{
+						//完全に同一な線であれば、その上は行き来できないものとする
+
+						// l1.p0(l2.p0) -> l1.p1(l2.p1)
+
+						removeLink(l1Begin, l1End);
+						removeLink(poly1.size() + l2Begin, poly1.size() + l2End);
+						removeLink(poly1.size() + l2End, poly1.size() + l2Begin);
+
+						if (IsSamePos(poly1[l1Begin], poly2[l2Begin]))
+						{
+							transitionLines.addSharedLine(l2Begin, l1Begin, l2End, l1End);
+						}
+						else
+						{
+							transitionLines.addSharedLine(l2Begin, l1End, l2End, l1Begin);
+						}
+					}
+					//1つの共有点を持つ場合は、リンクを追加する
+					// l1.p0 -> l1.p1(l2.p0)
+					//            |
+					//            v
+					//          l2.p1
+					else if (IsSamePos(poly1[l1Begin], poly2[l2Begin]))
+					{
+						transitionLines.addSharedPoint(l2Begin, l1Begin);
+						addBidirectionalLink(l1Begin, poly1.size() + l2Begin);
+					}
+					else if (IsSamePos(poly1[l1Begin], poly2[l2End]))
+					{
+						//transitionLines.addSharedPoint(l2End, l1Begin);
+						//addBidirectionalLink(l1Begin, poly1.size() + l2End);
+						continue;
+					}
+					else if (IsSamePos(poly1[l1End], poly2[l2Begin]))
+					{
+						//transitionLines.addSharedPoint(l2Begin, l1End);
+						//addBidirectionalLink(l1End, poly1.size() + l2Begin);
+						continue;
+					}
+					else if (IsSamePos(poly1[l1End], poly2[l2End]))
+					{
+						transitionLines.addSharedPoint(l2End, l1End);
+						addBidirectionalLink(l1End, poly1.size() + l2End);
+					}
+					else if (auto crossPointOpt = line1.intersectsAt(line2))
 					{
 						//          l2.p0
 						//            |
@@ -827,7 +981,7 @@ public:
 
 						transitionLines.addCrossPoint(crossPoint, l1Begin, l1End);
 
-						transitionPointsInPoly2.emplace_back(crossPoint);
+						//transitionPointsInPoly2.emplace_back(crossPoint);
 
 						intersectionList.emplace_back(intersectionPos, crossPoint);
 						intersectionListLine2.emplace_back(intersectionPos, crossPoint);
@@ -836,61 +990,6 @@ public:
 
 						removeLink(poly1.size() + l2Begin, poly1.size() + l2End);
 						removeLink(poly1.size() + l2End, poly1.size() + l2Begin);
-					}
-					else if (IsSamePos(poly1[l1Begin], poly2[l2Begin]) && IsSamePos(poly1[l1End], poly2[l2End])
-						|| IsSamePos(poly1[l1Begin], poly2[l2End]) && IsSamePos(poly1[l1End], poly2[l2Begin]))
-					{
-						//完全に同一な線であれば、その上は行き来できないものとする
-
-						// l1.p0(l2.p0) -> l1.p1(l2.p1)
-
-						removeLink(l1Begin, l1End);
-						removeLink(poly1.size() + l2Begin, poly1.size() + l2End);
-						removeLink(poly1.size() + l2End, poly1.size() + l2Begin);
-
-						if (IsSamePos(poly1[l1Begin], poly2[l2Begin]))
-						{
-							transitionPointsInPoly2.emplace_back(l2Begin, l1Begin);
-							transitionPointsInPoly2.emplace_back(l2End, l1End);
-
-							transitionLines.addSharedLine(l2Begin, l1Begin, l2End, l1End);
-						}
-						else
-						{
-							transitionPointsInPoly2.emplace_back(l2Begin, l1End);
-							transitionPointsInPoly2.emplace_back(l2End, l1Begin);
-
-							transitionLines.addSharedLine(l2Begin, l1End, l2End, l1Begin);
-						}
-					}
-					//1つの共有点を持つ場合は、リンクを追加する
-					// l1.p0 -> l1.p1(l2.p0)
-					//            |
-					//            v
-					//          l2.p1
-					else if (IsSamePos(poly1[l1Begin], poly2[l2Begin]))
-					{
-						transitionLines.addSharedPoint(l2Begin, l1Begin);
-						addBidirectionalLink(l1Begin, poly1.size() + l2Begin);
-						transitionPointsInPoly2.emplace_back(l2Begin, l1Begin);
-					}
-					else if (IsSamePos(poly1[l1Begin], poly2[l2End]))
-					{
-						transitionLines.addSharedPoint(l2End, l1Begin);
-						addBidirectionalLink(l1Begin, poly1.size() + l2End);
-						transitionPointsInPoly2.emplace_back(l2End, l1Begin);
-					}
-					else if (IsSamePos(poly1[l1End], poly2[l2Begin]))
-					{
-						transitionLines.addSharedPoint(l2Begin, l1End);
-						addBidirectionalLink(l1End, poly1.size() + l2Begin);
-						transitionPointsInPoly2.emplace_back(l2Begin, l1End);
-					}
-					else if (IsSamePos(poly1[l1End], poly2[l2End]))
-					{
-						transitionLines.addSharedPoint(l2End, l1End);
-						addBidirectionalLink(l1End, poly1.size() + l2End);
-						transitionPointsInPoly2.emplace_back(l2End, l1End);
 					}
 				}
 
@@ -967,24 +1066,155 @@ public:
 			そして、外側と内側の間についてのリンクを切り離し行き来できないようにする。
 			*/
 			{
+				/*
+				TODO : solveよりも前に、連続した共有線の間を取り除き、始点と終点のみ残す
+				*/
+
+				std::set<size_t> processedNodes;
+
 				transitionLines.solve(m_nodes, loopPoints2, subjectPoly);
 
 				for (size_t line = 0; line < transitionLines.size(); ++line)
 				{
-					const size_t beginIndex = transitionLines.findBeginOfLoopPoints2(line, loopPoints2);
-					const size_t endIndex = transitionLines.findEndOfLoopPoints2(line, loopPoints2);
+					LOG(__LINE__, L": for (size_t line = 0; line < transitionLines.size(); ++line)");
+					const auto beginOfLine = transitionLines.beginOfLine(line);
+					const auto endOfLine = transitionLines.beginOfLine(line);
 
-					for (size_t it = beginIndex; it <= endIndex; ++it)
+					const size_t beginIndex = transitionLines.findBeginOfLoopPoints2(line, loopPoints2, poly1.size());
+					const size_t endIndex = transitionLines.findEndOfLoopPoints2(line, loopPoints2, poly1.size()) % loopPoints2.size();
+
+					//beginとendが示すインデックスが同じ => TransitionLineが閉路である場合は、その間の線が内側の時のみリンクを削除する
+					//if (m_nodes[loopPoints2[beginIndex]].m_pos == m_nodes[loopPoints2[endIndex]].m_pos)
+					if (beginIndex == endIndex)
 					{
-						const size_t index = it % loopPoints2.size();
-						copyNodeWithoutLink(loopPoints2[index]);
-						ここから
+						LOG(__LINE__, L": beginIndex == endIndex");
+						if (transitionLines.getType(line) == TransitionLineType::Inner)
+						{
+							LOG(__LINE__, L": transitionLines.getType(line) == TransitionLineType::Inner");
+							const size_t nodeIndexPoly1 = beginOfLine.poly1Index_1;
+							const size_t nodeIndexPoly2 = poly1.size() + beginOfLine.poly2Index;
+
+							const size_t nodesID = std::hash<size_t>()(nodeIndexPoly1) + std::hash<size_t>()(nodeIndexPoly2);
+
+							LOG(__LINE__, L": About node ", nodeIndexPoly1, L" and node ", nodeIndexPoly2, L" :");
+
+							if (processedNodes.count(nodesID) != 0)
+							{
+								LOG(__LINE__, L": Already processed skip ...");
+								continue;
+							}
+
+							processedNodes.insert(nodesID);
+
+							assert(nodeIndexPoly2 == loopPoints2[beginIndex]);
+
+							const size_t cloneIndexPoly1 = copyNodeWithoutLink(nodeIndexPoly1);
+							const size_t cloneIndexPoly2 = copyNodeWithoutLink(nodeIndexPoly2);
+
+							const size_t nextNodeIndexPoly1 = (nodeIndexPoly1 + 1) % poly1.size();
+
+							const size_t postFrontNodeIndexPoly2 = loopPoints2[beginIndex + 1];
+							const size_t prevBackNodeIndexPoly2 = loopPoints2[(beginIndex + loopPoints2.size() - 1) % loopPoints2.size()];
+
+							removeLink(prevBackNodeIndexPoly2, nodeIndexPoly2);
+							removeLink(nodeIndexPoly2, prevBackNodeIndexPoly2);
+							addBidirectionalLink(prevBackNodeIndexPoly2, cloneIndexPoly2);
+
+							removeLink(nodeIndexPoly1, nextNodeIndexPoly1);
+							removeLink(nextNodeIndexPoly1, nodeIndexPoly1);
+							addBidirectionalLink(cloneIndexPoly1, nextNodeIndexPoly1);
+
+							addBidirectionalLink(cloneIndexPoly1, cloneIndexPoly2);
+						}
 					}
+					else
+					{
+						if (transitionLines.getType(line) == TransitionLineType::Inner)
+						{
+							std::vector<size_t> copyNodeListPoly2;
+							for (size_t subIndex = beginIndex; subIndex != endIndex; subIndex = (subIndex + 1) % loopPoints2.size())
+							{
+								copyNodeListPoly2.push_back(loopPoints2[subIndex]);
+							}
+							copyNodeListPoly2.push_back(loopPoints2[endIndex]);
+
+							/*
+							poly2 の部分線を取り出し、poly1 側に二つ複製を作る（線で区切られる内側用と外側用）
+							*/
+							std::array<size_t, 2> cloneLineBegins;
+							std::array<size_t, 2> cloneLineEnds;
+							for (size_t it = 0; it < 2; ++it)
+							{
+								std::vector<size_t> cloneIndices;
+								for (size_t nodeIndex = 0; nodeIndex < copyNodeListPoly2.size(); ++nodeIndex)
+								{
+									cloneIndices.push_back(copyNodeWithoutLink(copyNodeListPoly2[nodeIndex]));
+								}
+
+								for (size_t cloneIndex = 0; cloneIndex + 1 < cloneIndices.size(); ++cloneIndex)
+								{
+									addBidirectionalLink(cloneIndices[cloneIndex], cloneIndices[cloneIndex + 1]);
+								}
+
+								cloneLineBegins[it] = cloneIndices.front();
+								cloneLineEnds[it] = cloneIndices.back();
+							}
+							
+							const size_t beginNodeIndexPoly1 = beginOfLine.poly1Index_1;
+							const size_t beginNodeIndexPoly2 = poly1.size() + beginOfLine.poly2Index;
+
+							const size_t endNodeIndexPoly1 = endOfLine.poly1Index_1;
+							const size_t endNodeIndexPoly2 = poly1.size() + endOfLine.poly2Index;
+							
+							/*
+							poly1 に複製を作るので、poly1 と poly2 のリンクは解除しておく
+							*/
+							removeLink(beginNodeIndexPoly1, beginNodeIndexPoly2);
+							removeLink(beginNodeIndexPoly2, beginNodeIndexPoly1);
+							removeLink(endNodeIndexPoly1, endNodeIndexPoly2);
+							removeLink(endNodeIndexPoly2, endNodeIndexPoly1);
+
+							const size_t prevBeginNodeIndexPoly1 = (beginNodeIndexPoly1 + poly1.size() - 1) % poly1.size();
+							const size_t postBeginNodeIndexPoly1 = (beginNodeIndexPoly1 + 1) % poly1.size();
+							const size_t prevEndNodeIndexPoly1 = (endNodeIndexPoly1 + poly1.size() - 1) % poly1.size();
+							const size_t postEndNodeIndexPoly1 = (endNodeIndexPoly1 + 1) % poly1.size();
+
+							/*
+							まず poly1 の TransitionPoint の前後でリンクを切る
+							*/
+							removeLink(prevBeginNodeIndexPoly1, beginNodeIndexPoly1);
+							removeLink(beginNodeIndexPoly1, postBeginNodeIndexPoly1);
+							removeLink(prevEndNodeIndexPoly1, endNodeIndexPoly1);
+							removeLink(endNodeIndexPoly1, postEndNodeIndexPoly1);
+
+							/*
+							左側を繋げる
+							*/
+							addBidirectionalLink(prevBeginNodeIndexPoly1, cloneLineBegins[0]);
+							addBidirectionalLink(cloneLineEnds[0], postEndNodeIndexPoly1);
+
+							/*
+							右側を繋げる
+							*/
+							addBidirectionalLink(postBeginNodeIndexPoly1, cloneLineBegins[1]);
+							addBidirectionalLink(cloneLineBegins[1], prevEndNodeIndexPoly1);
+						}
+					}
+					/*else
+					{
+						for (size_t it = beginIndex; it <= endIndex; ++it)
+						{
+							const size_t index = it % loopPoints2.size();
+							copyNodeWithoutLink(loopPoints2[index]);
+
+						}
+					}*/
+					
 				}
 			}
 
 			//不要な連結を削除
-			for (size_t p2 = 0; p2 < poly2.size(); ++p2)
+			/*for (size_t p2 = 0; p2 < poly2.size(); ++p2)
 			{
 				if (!subjectPoly.contains(ToVec2(poly2[p2])))
 				{
@@ -996,7 +1226,7 @@ public:
 			for (auto removeIndex : removeIndices)
 			{
 				removeAllLinkByIndex(removeIndex);
-			}
+			}*/
 		}
 
 		m_adjacencyMatrix = transposed();
@@ -1252,6 +1482,9 @@ ClipperLib::Paths PolygonSubtract(const ClipperLib::Path & polygonA, const Clipp
 
 	if (poly.contains(hole))
 	{
+		/*
+		CurveSegmentsには存在しない線分を追加するので、それも返す必要がある
+		*/
 		LOG(L"PolygonSubtract: 穴の追加");
 
 		double rayLength = Window::Height();
