@@ -26,28 +26,6 @@ void ZFillFunc(ClipperLib::IntPoint& e1bot, ClipperLib::IntPoint& e1top, Clipper
 	pt.Z += (e2bot.Z << 32);
 }
 
-struct ClipVertex
-{
-	ClipVertex() = default;
-	ClipVertex(int x, int y, ClipperLib::cInt z) :
-		m_pos(1.0*x / scaleInt, 1.0*y / scaleInt),
-		m_Z(z)
-	{}
-
-	ClipVertex(const ClipperLib::IntPoint& p) :
-		m_pos(1.0*p.X / scaleInt, 1.0*p.Y / scaleInt),
-		m_Z(p.Z)
-	{}
-
-	bool samePos(const ClipVertex& other)const
-	{
-		return m_pos == other.m_pos;
-	}
-
-	Vec2 m_pos;
-	ClipperLib::cInt m_Z;
-};
-
 inline void TestSave(const ClipperLib::Path& pathA, const ClipperLib::Path& pathB,const String& filename)
 {
 	std::vector<Vec2> psA, psB;
@@ -751,6 +729,19 @@ public:
 		m_loops.erase(m_loops.begin() + loopIndex);
 	}
 
+	void insertLoop(size_t loopIndex, const std::weak_ptr<LineStringTree> pTreeWeak)
+	{
+		if (const auto pTree = pTreeWeak.lock())
+		{
+			LOG(L"Before Insertion Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
+
+			m_loops.insert(m_loops.begin() + loopIndex, pTree->m_loops.begin(), pTree->m_loops.end());
+			m_lines.insert(m_lines.begin() + loopIndex, pTree->m_lines.begin(), pTree->m_lines.end());
+			
+			LOG(L"After Insertion Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
+		}
+	}
+
 	void eraseHole(size_t holeIndex)
 	{
 		m_lineHoles.erase(m_lineHoles.begin() + holeIndex);
@@ -807,6 +798,24 @@ public:
 		}
 	}
 
+	void insert(const std::weak_ptr<LineStringTree> pTreeWeak, size_t pos)
+	{
+		if (const auto pTree = pTreeWeak.lock())
+		{
+			LOG(L"Before Insertion Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
+
+			m_loops.insert(m_loops.begin() + pos, pTree->m_loops.begin(), pTree->m_loops.end());
+			m_loopHoles.insert(m_loopHoles.begin() + pos, pTree->m_loopHoles.begin(), pTree->m_loopHoles.end());
+			m_contours.insert(m_contours.begin() + pos, pTree->m_contours.begin(), pTree->m_contours.end());
+			m_lines.insert(m_lines.begin() + pos, pTree->m_lines.begin(), pTree->m_lines.end());
+			m_lineHoles.insert(m_lineHoles.begin() + pos, pTree->m_lineHoles.begin(), pTree->m_lineHoles.end());
+			m_lineColors.insert(m_lineColors.begin() + pos, pTree->m_lineColors.begin(), pTree->m_lineColors.end());
+			m_lineHoleColors.insert(m_lineHoleColors.begin() + pos, pTree->m_lineHoleColors.begin(), pTree->m_lineHoleColors.end());
+
+			LOG(L"After Insertion Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
+		}
+	}
+
 	void logger(const String& tag)
 	{
 		LOG(tag, L" Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
@@ -816,6 +825,7 @@ public:
 	{
 		Image image(imageSize, Palette::White);
 
+		LOG(L"dump to \"", filename, L"\"");
 		dumpImpl(image);
 
 		//for (auto i : step(m_lines.size()))
@@ -844,15 +854,55 @@ private:
 
 	void dumpImpl(Image& image)
 	{
+		//for (int i = 0; i < numOfLoops(); ++i)
+		//{
+		//	Polygon(getLoopLines(i)).write(image, Color(Palette::Cyan, 64));
+		//}
+
+		//for (int i = 0; i < numOfHoles(); ++i)
+		//{
+		//	//const auto lines = getHoleLines(i);
+		//	LineString(getHoleLines(i)).write(image, 1.0, Palette::Red, true);
+		//}
+
+		const auto getColor = [&](bool isHole) {return isHole ? Palette::Red : Palette::Cyan; };
+
+		//LOG(L"L(", __LINE__, L"): ", m_loops.size());
+		//for (auto i : step(m_loops.size()))
+		//{
+		//	LOG(L"L(", __LINE__, L"): ", m_loops[i].size());
+		//	for (const auto& curveSegmentPair : m_loops[i])
+		//	{
+		//		const auto& curveSegment = curveSegmentPair.first;
+
+		//		//LOG(L"L(", __LINE__, L"): (first, last) = ", Vec2(curveSegment.range().first, curveSegment.range().second));
+		//		//LOG(L"L(", __LINE__, L"): (first, last) = ", curveSegment.curve().p0, L", ", curveSegment.curve().p1, L", ", curveSegment.curve().p2, L", ", curveSegment.curve().p3);
+
+		//		curveSegment.curve().writeArrow(image, 4, Palette::Purple, curveSegment.range().first, curveSegment.range().second);
+		//		//curveSegment.curve().write(image, 8, Palette::Cyan, curveSegment.range().first, curveSegment.range().second);
+		//	}
+		//}
+
+		/*for (auto i : step(m_loops.size()))
+		{
+			LOG(L"L(", __LINE__, L"): ", m_loops[i].size());
+			for (const auto& curveSegmentPair : m_loops[i])
+			{
+				const auto& curveSegment = curveSegmentPair.first;
+
+				std::vector<Vec2> points;
+				curveSegment.getSpecificPathHighPrecision(points, 10.0,0.2);
+				for (int p = 0; p+1 < points.size(); ++p)
+				{
+					Line(points[p], points[p + 1]).writeArrow(image, 1.0, { 5,5 }, Palette::Purple);
+				}
+			}
+		}*/
+
 		for (int i = 0; i < numOfLoops(); ++i)
 		{
-			Polygon(getLoopLines(i)).write(image, Color(Palette::Cyan, 64));
-		}
-
-		for (int i = 0; i < numOfHoles(); ++i)
-		{
 			//const auto lines = getHoleLines(i);
-			LineString(getHoleLines(i)).write(image, 1.0, Palette::Red, true);
+			LineString(getLoopLines(i)).write(image, 1.0, Palette::Purple, true);
 		}
 
 		for (auto p : m_childs)
@@ -1172,13 +1222,183 @@ public:
 			private:
 
 				std::vector<const CurveSegment*> m_curveSegmentPtrs;
-
 			};
 
 			m_pTree->dump(L"original.png");
 
 			int processCount = 0;
 
+			const int numOfLoops = m_pTree->numOfLoops();
+
+			/*
+			for (int loopIndex = 0; loopIndex < numOfLoops; ++loopIndex)
+			{
+				size_t indexOffset = 1;
+				auto pathLoop = m_pTree->getLoopPath(loopIndex, indexOffset, polygonizeInterval);
+
+				TestSave2({ pathLoop }, Format(L"inputPath_", loopIndex, L".png"));
+			}*/
+
+			for (int loopIndex = 0; loopIndex < numOfLoops; ++loopIndex)
+			{
+				/*{
+					for (int innerLoopIndex = 0; innerLoopIndex < numOfLoops; ++innerLoopIndex)
+					{
+						size_t innerIndexOffset = 1;
+						auto innerPathLoop = m_pTree->getLoopPath(innerLoopIndex, innerIndexOffset, polygonizeInterval);
+
+						TestSave2({ innerPathLoop }, Format(L"innerInputPath_", processCount, L"_", innerLoopIndex, L".png"));
+					}
+				}*/
+
+				Optional<size_t> leaveLaterIndex;
+
+				for (size_t holeIndex = 0; m_pTree->hasAnyHole(); ++holeIndex)
+				{
+					///loopのパスはクリップされるたびに変わる可能性があるので毎回ツリーからロードする
+					const Polygon polygonLoop(m_pTree->getLoopLines(loopIndex));
+
+					SegmentsHolder loopSegmentsHolder;
+
+					const auto loopSegments = m_pTree->getLoopCurve(loopIndex);
+					for (const auto& loopSegment : loopSegments)
+					{
+						loopSegmentsHolder.add(&loopSegment.first);
+					}
+
+					size_t indexOffset = 1;
+					auto pathLoop = m_pTree->getLoopPath(loopIndex, indexOffset, polygonizeInterval);
+					///
+
+					if (m_pTree->numOfHoles() <= holeIndex)
+					{
+						//後回しにしたホールがあればもどってくる
+						if (leaveLaterIndex)
+						{
+							holeIndex = 0;
+						}
+						//そうでなければこのループについては正常終了
+						else
+						{
+							LOG(L"穴の除去完了");
+							break;
+						}
+					}
+
+					if (leaveLaterIndex)
+					{
+						if (leaveLaterIndex.value() == holeIndex)
+						{
+							LOG_ERROR(L"L(", __LINE__, L"): 穴の除去に失敗");
+							break;
+						}
+					}
+
+					auto holeVertices = m_pTree->getHoleLines(holeIndex);
+					std::reverse(holeVertices.begin(), holeVertices.end());
+					const Polygon polygonHole(holeVertices);
+
+					//1回のクリップ毎に、インデックスは振りなおす
+					size_t currentIndexOffset = indexOffset;
+					auto pathHole = m_pTree->getHolePath(holeIndex, currentIndexOffset, polygonizeInterval);
+
+					//LOG(L"<A");
+					const auto relation = CalcRetation(pathLoop, pathHole);
+					//LOG(L"B>");
+
+					//内側に接する場合のみ実際にクリッピングを行う
+					if(relation == ClippingRelation::AdjacentInner)
+					{
+						LOG(L"穴の除去, Hole: ", m_pTree->numOfHoles(), L", Loop: ", m_pTree->numOfLoops());
+
+						SegmentsHolder holeSegmentsHolder;
+
+						const auto holeSegments = m_pTree->getHoleCurve(holeIndex);
+						for (const auto& holeSegment : holeSegments)
+						{
+							holeSegmentsHolder.add(&holeSegment.first);
+						}
+
+						//auto results = PolygonSubtract(pathLoop, pathHole, currentIndexOffset);
+						//if (results.second)
+						//{
+						//	//内側に包含するケースは後に回すようにしたので、個々は通らないはずだが念のため
+						//	LOG_ERROR(L"L(", __LINE__, L"): 包含するケースでクリッピングが発生");
+
+						//	const auto& additionalSegments = results.second.value().additionalSegments;
+						//	LOG(L"additionalSegments: ", additionalSegments.size());
+
+						//	for (const auto& segment : additionalSegments)
+						//	{
+						//		loopSegmentsHolder.add(&segment);
+						//	}
+						//}
+
+						++processCount;
+						TestSave(pathLoop, pathHole, Format(L"process_", processCount, L".png"));
+
+						auto results = PolygonSubtract2(pathLoop, pathHole);
+
+						//std::shared_ptr<LineStringTree> pTree2 = MakeResultPathWithoutDivision(results.first, std::vector<SegmentsHolder>({ holeSegmentsHolder, loopSegmentsHolder }));
+						//std::shared_ptr<LineStringTree> pTree2 = MakeResultPathWithoutDivision(results.first, std::vector<SegmentsHolder>({ loopSegmentsHolder, holeSegmentsHolder }));
+						std::shared_ptr<LineStringTree> pTree2 = MakeResultPathWithoutDivision(results, std::vector<SegmentsHolder>({ loopSegmentsHolder, holeSegmentsHolder }));
+
+						pTree2->dump(Format(L"dump_process_", processCount, L".png"));
+						LOG(L"dump complete");
+						
+						TestSave2(results, Format(L"process_", processCount, L"_result.png"));
+
+						if (pTree2->hasAnyHole())
+						{
+							LOG_ERROR(L"L(", __LINE__, L"): 穴の除去に失敗");
+							return;
+						}
+						else
+						{
+							m_pTree->eraseLoop(loopIndex);
+
+							if (pTree2->numOfLoops() == 1)
+							{
+								const Polygon newPolygonLoop(pTree2->getLoopLines(0));
+								LOG_ERROR(L"Before erode area: ", polygonLoop.area(), L", After erode area: ", newPolygonLoop.area());
+								//m_pTree->append(pTree2);
+								m_pTree->insert(pTree2, loopIndex);
+								//m_pTree->insertLoop(loopIndex, pTree2);
+							}
+							else
+							{
+								LOG_ERROR(L"Loop was divided to ", pTree2->numOfLoops(), L" new loops");
+								//m_pTree->append(pTree2);
+								m_pTree->insert(pTree2, loopIndex);
+								//m_pTree->insertLoop(loopIndex, pTree2);
+							}
+
+							//m_pTree->eraseLoop(loopIndex);
+						}
+
+						//クリッピングの適用により接するようになったかもしれない
+						leaveLaterIndex = none;
+					}
+					//完全に包含する場合は後回しにする
+					else if (relation == ClippingRelation::Contain)
+					{
+						if (!leaveLaterIndex)
+						{
+							leaveLaterIndex = holeIndex;
+						}
+					}
+					//無視できるケース（外側に接する or 完全に外側）
+					//else
+					//{
+
+					//	//++loopIndex;
+					//	//continue;
+					//}
+				}
+
+				//m_pTree->eraseHole(0);
+			}
+			/*
 			for (size_t holeIndex = 0; m_pTree->hasAnyHole();)
 			{
 				auto holeVertices = m_pTree->getHoleLines(holeIndex);
@@ -1217,23 +1437,23 @@ public:
 						size_t currentIndexOffset = indexOffset;
 						auto pathLoop = m_pTree->getLoopPath(loopIndex, currentIndexOffset, polygonizeInterval);
 
-						/*ClipperLib::Clipper clipper;
-						clipper.ZFillFunction(ZFillFunc);
+						auto results = PolygonSubtract(pathLoop, pathHole, currentIndexOffset);
+						if(results.second)
+						{
+							const auto& additionalSegments = results.second.value().additionalSegments;
+							LOG(L"additionalSegments: ", additionalSegments.size());
 
-						clipper.AddPath(pathLoop, ClipperLib::PolyType::ptSubject, true);
-						clipper.AddPath(pathHole, ClipperLib::PolyType::ptClip, true);
+							for (const auto& segment : additionalSegments)
+							{
+								loopSegmentsHolder.add(&segment);
+							}
+						}
 
-						ClipperLib::Paths resultPaths;
-						clipper.Execute(ClipperLib::ClipType::ctXor, resultPaths);*/
-
-						ClipperLib::Paths resultPaths = PolygonSubtract(pathLoop, pathHole);
-
-						std::shared_ptr<LineStringTree> pTree2 = MakeResultPathWithoutDivision(resultPaths, std::vector<SegmentsHolder>({ holeSegmentsHolder, loopSegmentsHolder }));
+						std::shared_ptr<LineStringTree> pTree2 = MakeResultPathWithoutDivision(results.first, std::vector<SegmentsHolder>({ holeSegmentsHolder, loopSegmentsHolder }));
 
 						++processCount;
-						//m_pTree->dump(Format(L"process_", processCount, L".png"));
 						TestSave(pathLoop, pathHole, Format(L"process_", processCount, L".png"));
-						TestSave2(resultPaths, Format(L"process_", processCount, L"_result.png"));
+						TestSave2(results.first, Format(L"process_", processCount, L"_result.png"));
 
 						if (pTree2->hasAnyHole())
 						{
@@ -1266,6 +1486,7 @@ public:
 
 				m_pTree->eraseHole(0);
 			}
+			*/
 		}
 
 		if (Input::KeyControl.pressed && Input::KeyS.clicked)

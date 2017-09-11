@@ -110,6 +110,16 @@ struct BezierCurve
 		}
 	}
 
+	void write(Image& image, int divNum = 30, const Color& color = Palette::White, double startT = 0.0, double endT = 1.0)const
+	{
+		for (int i = 0; i < divNum; ++i)
+		{
+			const double progress0 = 1.0*i / divNum;
+			const double progress1 = 1.0*(i + 1) / divNum;
+			Line(get(Lerp(startT, endT, progress0)), get(Lerp(startT, endT, progress1))).write(image, color);
+		}
+	}
+
 	void drawArrow(int divNum = 30, const Color& color = Palette::White, double startT = 0.0, double endT = 1.0)const
 	{
 		for (int i = 0; i < divNum; ++i)
@@ -119,6 +129,17 @@ struct BezierCurve
 			Line(get(Lerp(startT, endT, progress0)), get(Lerp(startT, endT, progress1))).drawArrow(1.0, {5.0,5.0}, color);
 		}
 	}
+
+	void writeArrow(Image& image,int divNum = 30, const Color& color = Palette::White, double startT = 0.0, double endT = 1.0)const
+	{
+		for (int i = 0; i < divNum; ++i)
+		{
+			const double progress0 = 1.0*i / divNum;
+			const double progress1 = 1.0*(i + 1) / divNum;
+			Line(get(Lerp(startT, endT, progress0)), get(Lerp(startT, endT, progress1))).writeArrow(image, 1.0, { 5.0,5.0 }, color);
+		}
+	}
+
 
 	Vec2 p0, p1, p2, p3;
 };

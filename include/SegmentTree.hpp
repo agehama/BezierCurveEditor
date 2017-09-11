@@ -1,6 +1,7 @@
 #pragma once
 #include <Siv3D.hpp>
 #include "BezierCurve.hpp"
+#include "BoundingRect.hpp"
 
 /*
 三次ベジェ曲線で構成されたパスの1セグメントについて、他のセグメントとの交差判定を計算するためのクラス

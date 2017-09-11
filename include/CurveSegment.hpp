@@ -5,6 +5,28 @@
 
 static const double scaleInt = 100000.0;
 
+struct ClipVertex
+{
+	ClipVertex() = default;
+	ClipVertex(int x, int y, ClipperLib::cInt z) :
+		m_pos(1.0*x / scaleInt, 1.0*y / scaleInt),
+		m_Z(z)
+	{}
+
+	ClipVertex(const ClipperLib::IntPoint& p) :
+		m_pos(1.0*p.X / scaleInt, 1.0*p.Y / scaleInt),
+		m_Z(p.Z)
+	{}
+
+	bool samePos(const ClipVertex& other)const
+	{
+		return m_pos == other.m_pos;
+	}
+
+	Vec2 m_pos;
+	ClipperLib::cInt m_Z;
+};
+
 /*
 三次ベジェ曲線で構成されたパスの1セグメントを表すクラス
 他のセグメントとの交差判定はSegmentTreeを使って二分探索で行う
@@ -30,6 +52,11 @@ public:
 		m_endT(endT)
 	{
 		init();
+	}
+
+	void setLine(const Vec2& p0, const Vec2& p1)
+	{
+		m_curve = BezierCurve(p0, p0, p1, p1);
 	}
 
 	void draw()const
