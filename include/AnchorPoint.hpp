@@ -43,12 +43,12 @@ public:
 
 	size_t size()const { return m_points.size(); }
 
-	const Line innerHandle()const
+	Line innerHandle()const
 	{
 		return Line(controlPointA(), anchorPoint());
 	}
 
-	const Line outerHandle()const
+	Line outerHandle()const
 	{
 		return Line(anchorPoint(), controlPointB());
 	}

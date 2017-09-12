@@ -4,7 +4,7 @@
 #include "CurveSegment.hpp"
 
 enum ClippingRelation {
-	AdjacentInner, AdjacentOuter, Contain, Distant
+	AdjacentInner, AdjacentOuter, Contain, Distant, Unknown
 };
 
 ClippingRelation CalcRetation(const ClipperLib::Path & polygonA, const ClipperLib::Path & polygonB);
@@ -20,7 +20,7 @@ ClipperLib::Paths PolygonSubtract2(const ClipperLib::Path& polygonA, const Clipp
 
 bool IsAppliableGraph(const ClipperLib::Path & polygonA, const ClipperLib::Path & polygonB);
 
-#define OUTPUT_LOG
+//#define OUTPUT_LOG
 
 #ifdef OUTPUT_LOG
 #define TEST_LOG(...) LOG(__VA_ARGS__)
@@ -411,7 +411,7 @@ public:
 	//poly1 - poly2
 	std::vector<std::vector<ClipperLib::IntPoint>> setPolygons(const std::vector<ClipperLib::IntPoint>& poly1, const std::vector<ClipperLib::IntPoint>& poly2)
 	{
-		static int passCount = 0;
+		/*static int passCount = 0;
 
 		if (passCount == 3)
 		{
@@ -435,12 +435,13 @@ public:
 			return{};
 		}
 
-		++passCount;
+		++passCount;*/
 
 		const Polygon subjectPoly = ToPoly(poly1);
 		const Polygon clipPoly = ToPoly(poly2);
 
 		std::vector<size_t> removeIndices;
+		LOG(__FUNCTIONW__, L": ", __LINE__);
 
 		//ノードの初期化
 		{
@@ -464,6 +465,7 @@ public:
 				m_nodes.push_back({ poly2[i], False() });
 			}
 		}
+		LOG(__FUNCTIONW__, L": ", __LINE__);
 
 		//隣接行列の初期化
 		{
@@ -905,7 +907,8 @@ public:
 						else
 						{
 							//１つ以上点がある場合：begin/end の間では内側/外側は変化しないので、どれが一つの点を持ってきて判定すればよい
-							const auto samplePoint = nodes[loopPoints2[(beginLoopIndex2 + 1) % loopPoints2.size()]].m_pos;
+							//const auto samplePoint = nodes[loopPoints2[(beginLoopIndex2 + 1) % loopPoints2.size()]].m_pos;
+							const auto samplePoint = nodes[loopPoints2[(beginLoopIndex2 + 1 + loopPoints2.size() / 2) % loopPoints2.size()]].m_pos;
 							m_transitionPoints[i].second = transitionLineType(samplePoint);
 						}
 					}
@@ -971,25 +974,26 @@ public:
 						TEST_LOG(L"L(", __LINE__, L"): Shared Point ", Point(l2Begin, l1Begin));
 						transitionLines.addSharedPoint(l2Begin, l1Begin);
 						addBidirectionalLink(l1Begin, poly1.size() + l2Begin);
+						m_nodes[l1Begin].m_isEnabledVertex = False();
 					}
 					else if (IsSamePos(poly1[l1Begin], poly2[l2End]))
 					{
-						//transitionLines.addSharedPoint(l2End, l1Begin);
-						//addBidirectionalLink(l1Begin, poly1.size() + l2End);
-						continue;
+						transitionLines.addSharedPoint(l2End, l1Begin);
+						addBidirectionalLink(l1Begin, poly1.size() + l2End);
+						m_nodes[l1Begin].m_isEnabledVertex = False();
 					}
 					else if (IsSamePos(poly1[l1End], poly2[l2Begin]))
 					{
-						//transitionLines.addSharedPoint(l2Begin, l1End);
-						//addBidirectionalLink(l1End, poly1.size() + l2Begin);
-						continue;
+						transitionLines.addSharedPoint(l2Begin, l1End);
+						addBidirectionalLink(l1End, poly1.size() + l2Begin);
+						m_nodes[l1End].m_isEnabledVertex = False();
 					}
 					else if (IsSamePos(poly1[l1End], poly2[l2End]))
 					{
 						//TEST_LOG(L"L(", __LINE__, L"): Shared Point ", Point(l1End, l2End));
-						//transitionLines.addSharedPoint(l2End, l1End);
-						//addBidirectionalLink(l1End, poly1.size() + l2End);
-						continue;
+						transitionLines.addSharedPoint(l2End, l1End);
+						addBidirectionalLink(l1End, poly1.size() + l2End);
+						m_nodes[l1End].m_isEnabledVertex = False();
 					}
 					else if (auto crossPointOpt = line1.intersectsAt(line2))
 					{
@@ -1094,6 +1098,7 @@ public:
 			一つは外側のインデックスとリンクを張り、もう一つは内側のインデックスとリンクを張るようにする。
 			そして、外側と内側の間についてのリンクを切り離し行き来できないようにする。
 			*/
+			if(false)
 			{
 				/*
 				TODO : solveよりも前に、連続した共有線の間を取り除き、始点と終点のみ残す
@@ -1107,7 +1112,7 @@ public:
 				{
 					//TEST_LOG(__LINE__, L": for (size_t line = 0; line < transitionLines.size(); ++line)");
 					const auto beginOfLine = transitionLines.beginOfLine(line);
-					const auto endOfLine = transitionLines.beginOfLine(line);
+					const auto endOfLine = transitionLines.endOfLine(line);
 
 					const size_t beginIndex = transitionLines.findBeginOfLoopPoints2(line, loopPoints2, poly1.size());
 					const size_t endIndex = transitionLines.findEndOfLoopPoints2(line, loopPoints2, poly1.size()) % loopPoints2.size();
@@ -1163,6 +1168,7 @@ public:
 						TEST_LOG(__LINE__, L": beginIndex != endIndex");
 						if (transitionLines.getType(line) == TransitionLineType::Inner)
 						{
+							TEST_LOG(__LINE__, L": transitionLines.getType(line) == TransitionLineType::Inner");
 							std::vector<size_t> copyNodeListPoly2;
 							for (size_t subIndex = beginIndex; subIndex != endIndex; subIndex = (subIndex + 1) % loopPoints2.size())
 							{
@@ -1205,6 +1211,7 @@ public:
 							removeLink(beginNodeIndexPoly2, beginNodeIndexPoly1);
 							removeLink(endNodeIndexPoly1, endNodeIndexPoly2);
 							removeLink(endNodeIndexPoly2, endNodeIndexPoly1);
+							TEST_LOG(L"remove link between poly1 and poly2 (begin, end):", Point(beginNodeIndexPoly1, beginNodeIndexPoly2), L", ", Point(endNodeIndexPoly1, endNodeIndexPoly2));
 
 							const size_t prevBeginNodeIndexPoly1 = (beginNodeIndexPoly1 + poly1.size() - 1) % poly1.size();
 							const size_t postBeginNodeIndexPoly1 = (beginNodeIndexPoly1 + 1) % poly1.size();
@@ -1218,6 +1225,8 @@ public:
 							removeLink(beginNodeIndexPoly1, postBeginNodeIndexPoly1);
 							removeLink(prevEndNodeIndexPoly1, endNodeIndexPoly1);
 							removeLink(endNodeIndexPoly1, postEndNodeIndexPoly1);
+							TEST_LOG(L"remove link in poly1 begin (prev, trans, post):", Vec3(prevBeginNodeIndexPoly1, beginNodeIndexPoly1, postBeginNodeIndexPoly1));
+							TEST_LOG(L"remove link in poly1 end (prev, trans, post):", Vec3(prevEndNodeIndexPoly1, endNodeIndexPoly1, postEndNodeIndexPoly1));
 
 							/*
 							左側を繋げる
@@ -1225,11 +1234,17 @@ public:
 							addBidirectionalLink(prevBeginNodeIndexPoly1, cloneLineBegins[0]);
 							addBidirectionalLink(cloneLineEnds[0], postEndNodeIndexPoly1);
 
+							TEST_LOG(L"add link poly1 and clone1 begin (prev, trans):", Point(prevBeginNodeIndexPoly1, cloneLineBegins[0]));
+							TEST_LOG(L"add link poly1 and clone1 end (trans, post):", Point(cloneLineEnds[0], postEndNodeIndexPoly1));
+
 							/*
 							右側を繋げる
 							*/
 							addBidirectionalLink(postBeginNodeIndexPoly1, cloneLineBegins[1]);
-							addBidirectionalLink(cloneLineBegins[1], prevEndNodeIndexPoly1);
+							addBidirectionalLink(cloneLineEnds[1], prevEndNodeIndexPoly1);
+
+							TEST_LOG(L"add link poly1 and clone2 begin (prev, trans):", Point(postBeginNodeIndexPoly1, cloneLineBegins[1]));
+							TEST_LOG(L"add link poly1 and clone2 end (trans, post):", Point(cloneLineEnds[1], prevEndNodeIndexPoly1));
 						}
 					}
 					/*else
@@ -1263,27 +1278,34 @@ public:
 
 		m_adjacencyMatrix = transposed();
 
+		LOG(__FUNCTIONW__, L": ", __LINE__);
 #ifdef OUTPUT_LOG
 		debugPrint();
 #endif
 
+		LOG(__FUNCTIONW__, L": ", __LINE__);
 		//連続した有効要素を見つける
 		{
 			for (auto i : step(loopPoints1.size()))
 			{
 				const size_t currentIndex = loopPoints1[i];
 				const size_t nextIndex = loopPoints1[(i + 1) % loopPoints1.size()];
-
+				const size_t nextNextIndex = loopPoints1[(i + 2) % loopPoints1.size()];
 
 				TEST_LOG(L"index(", currentIndex, L"): ", m_nodes[currentIndex].m_isEnabledVertex);
 
-				if (m_nodes[currentIndex].m_isEnabledVertex == True() && m_nodes[nextIndex].m_isEnabledVertex == False())
+				//時計回りを強制するために三点見る
+				if (m_nodes[currentIndex].m_isEnabledVertex == True() && m_nodes[nextIndex].m_isEnabledVertex == True() && m_nodes[nextNextIndex].m_isEnabledVertex == False())
 				{
 					endPoints.push_back(currentIndex);
 					TEST_LOG(L"new end point index: ", currentIndex);
 				}
 			}
 		}
+
+		LOG(__FUNCTIONW__, L": ", __LINE__);
+
+		TEST_LOG(L"EndPoints Size: ", endPoints.size());
 
 		std::vector<std::vector<ClipperLib::IntPoint>> resultPolygons;
 		std::vector<std::pair<size_t, size_t>> resultIndicesNumAndFrontIndex;
@@ -1340,12 +1362,16 @@ public:
 			}
 		}
 
+		LOG(__FUNCTIONW__, L": ", __LINE__);
+
 		{
 			for (const auto& p : m_nodes)
 			{
 				pp.push_back(RandomVec2(1.0));
 			}
 		}
+
+		LOG(__FUNCTIONW__, L": ", __LINE__);
 
 		return resultPolygons;
 	}
@@ -1374,10 +1400,10 @@ public:
 				ToDrawLine(m_nodes[currentIndex].m_pos, m_nodes[nextIndex].m_pos).drawArrow(1.0, { 7.5,7.5 }, Palette::Yellow);
 			}
 
-			/*for (auto p : endPoints)
+			for (auto p : endPoints)
 			{
-			Circle(ToDrawVec2(m_nodes[p].m_pos), radius).draw(Palette::Purple);
-			}*/
+				Circle(ToDrawVec2(m_nodes[p].m_pos), radius).draw(Palette::Purple);
+			}
 		}
 		else
 		{
@@ -1405,6 +1431,16 @@ public:
 				//const String nodeName = Format(L"node", i, ClipVertex(m_nodes[i].m_pos).m_pos);
 				//m_debugFont(nodeName).drawAt(ToDrawVec2(m_nodes[i].m_pos));
 			}
+		}
+
+		for (const auto& pos : candidate_poss)
+		{
+			Circle(pos, radius*2.0).draw(Color(Palette::Cyan, 128));
+		}
+
+		for (const auto& pos : current_poss)
+		{
+			Circle(pos, radius*2.0).draw(Color(Palette::Orange, 128));
 		}
 	}
 
@@ -1527,7 +1563,8 @@ private:
 
 	std::vector<size_t> findShortestLoop(size_t index)
 	{
-		return dijkstraSearch(index, index);
+		//return dijkstraSearch(index, index);
+		return leftHandSearch(index, index);
 	}
 
 	std::vector<size_t> dijkstraSearch(size_t startNode, size_t endNode)
@@ -1578,6 +1615,289 @@ private:
 		return{};
 	}
 
+	std::vector<size_t> getNextNodes(size_t index, Optional<size_t> prev)
+	{
+		std::vector<size_t> result;
+
+		const auto& line = m_adjacencyMatrix[index];
+		for (size_t i = 0; i < line.size(); ++i)
+		{
+			if (line[i] == True() && (!prev || i != prev.value()))
+			{
+				result.push_back(i);
+			}
+		}
+
+		//TEST_LOG(L"NextCandidates Size: ", result.size());
+
+		return result;
+	}
+
+	struct IndexTree
+	{
+		using Ptr = std::shared_ptr<IndexTree>;
+
+		IndexTree() = default;
+
+		IndexTree(size_t node)
+			:m_node(node)
+		{}
+
+		Ptr addChild(size_t childIndex)
+		{
+			m_childs.push_back(Make(childIndex));
+			return m_childs.back();
+		}
+
+		static Ptr Make(size_t node)
+		{
+			return std::make_shared<IndexTree>(node);
+		}
+
+		bool hasChilds()const
+		{
+			return !m_childs.empty();
+		}
+
+		size_t childsSize()const
+		{
+			return m_childs.size();
+		}
+
+		std::vector<std::pair<size_t, size_t>> leafs()const
+		{
+			std::vector<std::pair<size_t, size_t>> result;
+
+			if (!hasChilds())
+			{
+				return{};
+			}
+
+			for (auto child : m_childs)
+			{
+				child->leafsImpl(result, child->node());
+			}
+
+			return result;
+		}
+
+		Ptr operator[](size_t index)
+		{
+			return m_childs[index];
+		}
+
+		size_t node()const
+		{
+			return m_node;
+		}
+
+	private:
+
+		void leafsImpl(std::vector<std::pair<size_t, size_t>>& result, size_t ancestor)const
+		{
+			if (hasChilds())
+			{
+				for (auto child : m_childs)
+				{
+					child->leafsImpl(result, ancestor);
+				}
+			}
+			else
+			{
+				result.emplace_back(m_node, ancestor);
+			}
+		}
+
+		size_t m_node;
+		std::vector<Ptr> m_childs;
+	};
+
+	/*
+	poly1 -> poly2 のノードに移る場合は共有点を通るので必ず重複した点を一回は通る
+	*/
+	//std::vector<std::pair<size_t, Optional<size_t>>> getNextNodes2(size_t index, Optional<size_t> prev)
+	//void getNextNodes2(size_t index, Optional<size_t> prev, size_t originalIndex, IndexTree::Ptr currentNode)
+	void getNextNodes2(size_t index, Optional<size_t> prev, std::set<size_t>& alreadyVisited, IndexTree::Ptr currentNode)
+	{
+		/*if (!currentNode)
+		{
+			currentNode = IndexTree::Make(index);
+		}*/
+		LOG(__FUNCTIONW__, L": ", __LINE__);
+
+		//std::vector<std::pair<size_t, Optional<size_t>>> results;
+
+		const auto& line = m_adjacencyMatrix[index];
+		for (size_t i = 0; i < line.size(); ++i)
+		{
+			if (line[i] == True() && (!prev || i != prev.value()) && alreadyVisited.count(i) == 0)
+			{
+				auto nextNode = currentNode->addChild(i);
+				alreadyVisited.insert(i);
+
+				LOG(__FUNCTIONW__, L": ", __LINE__, L", addNode: ", i, L"pos: ", Vec3(m_nodes[i].m_pos.X, m_nodes[i].m_pos.Y, m_nodes[i].m_pos.Z));
+
+				//違う点になるまで先読みする
+				if (IsSamePos(m_nodes[i].m_pos, m_nodes[index].m_pos))
+				{
+					getNextNodes2(i, index, alreadyVisited, nextNode);
+					//const auto nextNext = getNextNodes(i, index);
+					//LOG(L"nextNext.Size: ", nextNext.size());
+					//result.second = getNextNodes(i, index).front();
+				}
+
+				//results.push_back(result);
+			}
+		}
+
+		LOG(__FUNCTIONW__, L": ", __LINE__);
+
+		//return results;
+		//return currentNode;
+	}
+
+	//左手法
+	std::vector<size_t> leftHandSearch(size_t startNode, size_t endNode)
+	{
+		std::vector<size_t> indices;
+		indices.push_back(startNode);
+
+		LOG(__FUNCTIONW__, L": ", __LINE__);
+
+		while (true)
+		{
+			const size_t currentNode = indices.back();
+			if (2 <= indices.size() && currentNode == endNode)
+			{
+				return indices;
+			}
+
+			LOG(__FUNCTIONW__, L": ", __LINE__);
+
+			//const auto candidates = getNextNodes(currentNode);
+			const auto candidates = IndexTree::Make(currentNode);
+			std::set<size_t> alreadyVisited;
+			alreadyVisited.insert(currentNode);
+			//const auto candidates = getNextNodes2(currentNode, indices.size() == 1 ? none : Optional<size_t>(indices[indices.size() - 1]), );
+			LOG(__FUNCTIONW__, L": ", __LINE__, L"indices.size(): ", indices.size(), L", currentNode: ", currentNode);
+			getNextNodes2(currentNode, indices.size() == 1 ? none : Optional<size_t>(indices[indices.size() - 1]), alreadyVisited, candidates);
+
+			LOG(__FUNCTIONW__, L": ", __LINE__);
+
+			//if (candidates.empty())
+			if (!candidates->hasChilds())
+			{
+				LOG(__FUNCTIONW__, L": ", __LINE__);
+				LOG_ERROR(L"Error: search stucked");
+				return{};
+			}
+			//else if (candidates.size() == 1)
+			else if (candidates->childsSize() == 1)
+			{
+				LOG(__FUNCTIONW__, L": ", __LINE__);
+				//candidates->leafs();
+				//indices.push_back(candidates.front().first);
+				//indices.push_back(candidates->m_childs.front()->m_node);
+				indices.push_back((*candidates)[0]->node());
+			}
+			else
+			{
+				LOG(__FUNCTIONW__, L": ", __LINE__);
+				//TEST_LOG(L"prev Index: ", indices[indices.size() - 1]);
+				//TEST_LOG(L"current Index: ", indices.back());
+				
+				const auto currentPoint = m_nodes[indices.back()].m_pos;
+				const Vec2 currentPos = ClipVertex(m_nodes[indices.back()].m_pos).m_pos;
+
+				Vec2 prevPos;
+				int prevIndex;
+
+				LOG(__FUNCTIONW__, L": ", __LINE__);
+
+				for (int i = 1; i < indices.size(); ++i)
+				{
+					const int prevIndex_ = indices[(2 * indices.size() - i) % indices.size()];
+					const auto prevPoint = m_nodes[indices[(2 * indices.size() - i) % indices.size()]].m_pos;
+					if (!IsSamePos(prevPoint, currentPoint))
+					{
+						prevPos = ClipVertex(prevPoint).m_pos;
+						prevIndex = prevIndex_;
+						break;
+					}
+				}
+
+				LOG(__FUNCTIONW__, L": ", __LINE__);
+				
+				//TEST_LOG(__LINE__, L", prevPos: ", prevPos);
+				//TEST_LOG(__LINE__, L", currentPos : ", Vec3(currentPoint.X, currentPoint.Y, currentPoint.Z));
+				
+				assert(currentPos != prevPos);
+
+				const auto dirForward = (currentPos - prevPos).normalize();
+				const auto dirBack = -dirForward;
+
+				TEST_LOG(__LINE__, L", prevPos : ", prevPos, L", dirBack: ", dirBack, L", prevIndex: ", prevIndex);
+				TEST_LOG(__LINE__, L", currentPos : ", currentPos, L", dirBack: ", dirBack, L", currentIndex: ", currentNode);
+
+				current_poss.push_back(currentPos);
+
+				LOG(__FUNCTIONW__, L": ", __LINE__);
+
+				using CandidateType = std::pair<size_t, Optional<size_t>>;
+
+				const auto angle = [&](size_t nextIndex)
+				//const auto angle = [&](const CandidateType& candidate)
+				{
+					//size_t nextIndex = candidate.second ? candidate.second.value() : candidate.first;
+
+					const auto pp = m_nodes[nextIndex].m_pos;
+					
+					candidate_poss.push_back(ClipVertex(m_nodes[nextIndex].m_pos).m_pos);
+
+					assert(nextIndex != currentNode);
+					const auto dirCandidate = (ClipVertex(m_nodes[nextIndex].m_pos).m_pos - currentPos).normalize();
+
+					//[0, 2Pi)
+					const double resultAngle = fmod(atan2(dirBack.cross(dirCandidate), dirBack.dot(dirCandidate)) + TwoPi, TwoPi);
+
+					TEST_LOG(__LINE__, L",   candidate: ", ClipVertex(pp).m_pos, L", direction: ", dirCandidate,L", nextIndex: ", nextIndex, L", angle: ", resultAngle);
+
+					return resultAngle;
+				};
+
+				//const auto minAngleIt = std::min_element(candidates.begin(), candidates.end(), [&](const CandidateType& candidateA, const CandidateType& candidateB)
+				const std::vector<std::pair<size_t, size_t>> nextIndices = candidates->leafs();
+				//TEST_LOG(L"nextIndices: ", nextIndices.size());
+				const auto minAngleIt = std::min_element(nextIndices.begin(), nextIndices.end(), [&](const std::pair<size_t, size_t>& candidateA, const std::pair<size_t, size_t>& candidateB)
+				{
+					//return angle(candidateA) < angle(candidateB);
+					return angle(candidateA.first) > angle(candidateB.first);
+				});
+
+				LOG(__FUNCTIONW__, L": ", __LINE__);
+
+				//assert(minAngleIt != candidates.end());
+				assert(minAngleIt != nextIndices.end());
+
+				//indices.push_back(minAngleIt->first);
+				indices.push_back(minAngleIt->second);
+			}
+
+			/*if (indices.back() == indices.front())
+			{
+				return indices;
+			}*/
+		}
+
+		//return indices;
+		return{};
+
+		/*TEST_LOG(L"current search node: ",indices.back());
+
+		TEST_LOG(L"Shortest path not found");
+		return{};*/
+	}
+
 	std::vector<GraphNode> m_nodes;
 	std::vector<std::vector<char>> m_adjacencyMatrix;
 
@@ -1586,36 +1906,266 @@ private:
 	std::vector<size_t> endPoints;
 
 	std::vector<Vec2> pp;
+	std::vector<Vec2> current_poss;
+	std::vector<Vec2> candidate_poss;
 
 	Font m_debugFont = Font(12);
 };
 
+//finding the centroid of a polygon
+//https://stackoverflow.com/questions/2792443/finding-the-centroid-of-a-polygon
+inline ClipperLib::IntPoint compute2DPolygonCentroid(const ClipperLib::Path & polygon)
+{
+	Vec2 centroid = { 0, 0 };
+	double signedArea = 0.0;
+	double x0 = 0.0; // Current vertex X
+	double y0 = 0.0; // Current vertex Y
+	double x1 = 0.0; // Next vertex X
+	double y1 = 0.0; // Next vertex Y
+	double a = 0.0;  // Partial signed area
+
+					 // For all vertices except last
+	int i = 0;
+	for (i = 0; i<polygon.size() - 1; ++i)
+	{
+		const auto p0 = ClipVertex(polygon[i]).m_pos;
+		const auto p1 = ClipVertex(polygon[i + 1]).m_pos;
+		x0 = p0.x;
+		y0 = p0.y;
+		x1 = p1.x;
+		y1 = p1.y;
+		a = x0*y1 - x1*y0;
+		signedArea += a;
+		centroid.x += (x0 + x1)*a;
+		centroid.y += (y0 + y1)*a;
+	}
+
+	// Do last vertex separately to avoid performing an expensive
+	// modulus operation in each iteration.
+	x0 = ClipVertex(polygon[i]).m_pos.x;
+	y0 = ClipVertex(polygon[i]).m_pos.y;
+	x1 = ClipVertex(polygon[0]).m_pos.x;
+	y1 = ClipVertex(polygon[0]).m_pos.y;
+	a = x0*y1 - x1*y0;
+	signedArea += a;
+	centroid.x += (x0 + x1)*a;
+	centroid.y += (y0 + y1)*a;
+
+	signedArea *= 0.5;
+	centroid.x /= (6.0*signedArea);
+	centroid.y /= (6.0*signedArea);
+
+	return ClipperLib::IntPoint(centroid.x*scaleInt, centroid.y*scaleInt, 0);
+	//return ClipperLib::IntPoint(centroid.x, centroid.y, 0);
+	//return centroid;
+}
+
+/*
+線分 p0 -> p1 に対してpointが内側にいるか
+*/
+bool IsInner(const ClipperLib::IntPoint& p0, const ClipperLib::IntPoint& p1, const ClipperLib::IntPoint& point)
+{
+	const ClipperLib::cInt v1x = p1.X - p0.X;
+	const ClipperLib::cInt v1y = p1.Y - p0.Y;
+	const ClipperLib::cInt v2x = point.X - p0.X;
+	const ClipperLib::cInt v2y = point.Y - p0.Y;
+
+	//return 0 <= v1x*v2y - v1y*v2x;
+	return v1x*v2y - v1y*v2x < 0;
+}
+
+//bool IsInner(const ClipperLib::Path & polygonA, const ClipperLib::IntPoint& distantPoint)
+//{
+//	for (size_t i = 0; i < polygonA.size(); ++i)
+//	{
+//		if (!IsInner(polygonA[i], polygonA[(i + 1) % polygonA.size()], distantPoint))
+//		{
+//			return false;
+//		}
+//	}
+//
+//	return true;
+//}
+
+class BoundingRectIntPoint
+{
+public:
+
+	void add(const ClipperLib::IntPoint& v)
+	{
+		if (v.X < m_min_x)
+		{
+			m_min_x = v.X;
+		}
+		if (v.Y < m_min_y)
+		{
+			m_min_y = v.Y;
+		}
+		if (m_max_x < v.X)
+		{
+			m_max_x = v.X;
+		}
+		if (m_max_y < v.Y)
+		{
+			m_max_y = v.Y;
+		}
+	}
+
+	RectF get()const
+	{
+		return RectF(m_min_x, m_min_y, m_max_x - m_min_x, m_max_y - m_min_y);
+	}
+
+	/*
+	境界線上では交差していないという判定を厳密にしたいため、四則演算を使わずに衝突判定を行う
+	*/
+	bool intersects(const BoundingRectIntPoint& other)const
+	{
+		return Max(m_min_x, other.m_min_x) < Min(m_max_x, other.m_max_x)
+			&& Max(m_min_y, other.m_min_y) < Min(m_max_y, other.m_max_y);
+	}
+
+	bool includes(const ClipperLib::IntPoint& point)const
+	{
+		return m_min_x < point.X && point.X < m_max_x
+			&& m_min_y < point.Y && point.Y < m_max_y;
+	}
+
+	String toString()const
+	{
+		return Format(m_min_x, L", ", m_min_y, L",", m_max_x, L",", m_max_y);
+	}
+
+private:
+
+	ClipperLib::cInt m_min_x = INT64_MAX;
+	ClipperLib::cInt m_min_y = INT64_MAX;
+	ClipperLib::cInt m_max_x = INT64_MIN;
+	ClipperLib::cInt m_max_y = INT64_MIN;
+};
+
+bool IsInner(const ClipperLib::Path & polygonA, const ClipperLib::IntPoint& distantPoint)
+{
+	BoundingRectIntPoint boundingRect;
+	for (const auto& p : polygonA)
+	{
+		boundingRect.add(p);
+	}
+	const auto rect = boundingRect.get();
+
+	const double rayLength = rect.w + rect.h;
+	const Vec2 startPos = ClipVertex(distantPoint).m_pos;
+	const Line ray(startPos, startPos + Vec2(0, 1)*rayLength);
+
+	int intersectionCount = 0;
+	for (size_t i = 0; i < polygonA.size(); ++i)
+	{
+		const Line currentLine(ClipVertex(polygonA[i]).m_pos, ClipVertex(polygonA[(i + 1) % polygonA.size()]).m_pos);
+		if (currentLine.intersects(ray))
+		{
+			++intersectionCount;
+		}
+	}
+
+	return intersectionCount % 2 == 1;
+}
+
+
+/*
+distantPointはB側の点
+*/
+std::pair<Optional<ClipperLib::IntPoint>, Optional<ClipperLib::IntPoint>> SharedPoint_DistantPoint(const ClipperLib::Path & polygonA, const ClipperLib::Path & polygonB)
+{
+	Optional<ClipperLib::IntPoint> sharedPoint, distantPoint;
+
+	for (const auto& vertexB : polygonB)
+	{
+		bool isDistant = true;
+	
+		for (const auto& vertexA : polygonA)
+		{
+			if (vertexA.X == vertexB.X && vertexA.Y == vertexB.Y)
+			{
+				isDistant = false;
+				if (!sharedPoint)
+				{
+					sharedPoint = vertexB;
+				}
+			}
+		}
+
+		if (isDistant && !distantPoint)
+		{
+			distantPoint = vertexB;
+		}
+	}
+
+	return{ sharedPoint, distantPoint };
+}
+
 inline ClippingRelation CalcRetation(const ClipperLib::Path & polygonA, const ClipperLib::Path & polygonB)
 {
-	const Polygon poly = ToPoly(polygonA);
-	const Polygon hole = ToPoly(polygonB);
+	const auto sharedDistant = SharedPoint_DistantPoint(polygonA, polygonB);
 
-	if (!poly.intersects(hole))
+	/*
+	distant pointが1つもないケースはあり得るか？
+	polygonBがpolygonAと全く同じ形（もしくはpolygonAの一部の頂点だけから成る）場合はdistant pointはなさそう。
+	*/
+
+	// AdjacentInner or AdjacentOuter
+
+	if (!sharedDistant.second)
 	{
-		LOG(L"Relation is ClippingRelation::Distant");
-		return ClippingRelation::Distant;
+		LOG_ERROR(L"no distant point: ");
+		if (sharedDistant.first)
+		{
+			return IsInner(polygonA, compute2DPolygonCentroid(polygonB)) ? ClippingRelation::AdjacentInner : ClippingRelation::AdjacentOuter;
+		}
+		else
+		{
+			LOG_ERROR(L"no results");
+			return ClippingRelation::Unknown;
+		}
 	}
 
-	if (poly.contains(hole))
+	if (sharedDistant.first)
 	{
-		LOG(L"Relation is ClippingRelation::Contain");
-		return ClippingRelation::Contain;
+		//return IsInner(polygonA, sharedDistant.second.value()) ? ClippingRelation::AdjacentInner : ClippingRelation::AdjacentOuter;
+		const auto centroid = compute2DPolygonCentroid(polygonB);
+		LOG(L"centroid: ", ClipVertex(centroid).m_pos);
+		return IsInner(polygonA, centroid) ? ClippingRelation::AdjacentInner : ClippingRelation::AdjacentOuter;
 	}
-
-	LOG(L"polygonB.size: ", polygonB.size());
-	if (poly.contains(ToVec2(MidPoint(polygonB[0], polygonB[polygonB.size() / 2]))))
-	{
-		LOG(L"Relation is ClippingRelation::AdjacentInner");
-		return ClippingRelation::AdjacentInner;
-	}
-	LOG(L"Relation is ClippingRelation::AdjacentOuter");
-	return ClippingRelation::AdjacentOuter;
+	// Contain or Distant
+	return IsInner(polygonA, sharedDistant.second.value()) ? ClippingRelation::Contain : ClippingRelation::Distant;
 }
+
+
+//inline ClippingRelation CalcRetation(const ClipperLib::Path & polygonA, const ClipperLib::Path & polygonB)
+//{
+//	const Polygon poly = ToPoly(polygonA);
+//	const Polygon hole = ToPoly(polygonB);
+//
+//	if (!poly.intersects(hole))
+//	{
+//		LOG(L"Relation is ClippingRelation::Distant");
+//		return ClippingRelation::Distant;
+//	}
+//
+//	if (poly.contains(hole))
+//	{
+//		LOG(L"Relation is ClippingRelation::Contain");
+//		return ClippingRelation::Contain;
+//	}
+//
+//	LOG(L"polygonB.size: ", polygonB.size());
+//	if (poly.contains(ToVec2(MidPoint(polygonB[0], polygonB[polygonB.size() / 2]))))
+//	{
+//		LOG(L"Relation is ClippingRelation::AdjacentInner");
+//		return ClippingRelation::AdjacentInner;
+//	}
+//	LOG(L"Relation is ClippingRelation::AdjacentOuter");
+//	return ClippingRelation::AdjacentOuter;
+//}
 
 /*
 newSegmentIndex: セグメントの追加が起きる場合があるので、新たなセグメントに振るインデックスに使う

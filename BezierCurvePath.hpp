@@ -113,6 +113,63 @@ bool IsClockWise(const Vertices& closedPath)
 	return sum < 0.0;
 }
 
+bool IsClockWise(const std::vector<Vec2>& closedPath)
+{
+	double sum = 0;
+
+	for (int i = 0; i < closedPath.size(); ++i)
+	{
+		const auto& p1 = closedPath[i];
+		const auto& p2 = closedPath[(i + 1) % closedPath.size()];
+
+		sum += (p2.x - p1.x)*(p2.y + p1.y);
+	}
+
+	return sum < 0.0;
+}
+
+void CheckIntersection(const String& filename, const ClipperLib::Path & polygonA, const ClipperLib::Path & polygonB)
+{
+	const auto relationToString = [](ClippingRelation relation)->String
+	{
+		switch (relation)
+		{
+		case AdjacentInner:
+			return L"AdjacentInner";
+		case AdjacentOuter:
+			return L"AdjacentOuter";
+		case Contain:
+			return L"Contain";
+		case Distant:
+			return L"Distant";
+		default:
+			return L"else";
+		}
+	};
+
+	Font font(20);
+
+	std::vector<Vec2> psA, psB;
+
+	for (const auto& point : polygonA)
+	{
+		psA.push_back(ClipVertex(point).m_pos);
+	}
+	for (const auto& point : polygonB)
+	{
+		psB.push_back(ClipVertex(point).m_pos);
+	}
+
+	Image image(Window::Size(), Palette::White);
+
+	LineString(psA).write(image, 2.0, Palette::Blue);
+	LineString(psB).write(image, 2.0, Palette::Red);
+
+	font(relationToString(CalcRetation(polygonA, polygonB))).write(image);
+
+	image.savePNG(filename);
+}
+
 /*
 パスに射影した線分について、そのパス上での長さを返す
 
@@ -850,6 +907,31 @@ public:
 		image.savePNG(filename);
 	}
 
+	void dumpPoly(const String& filename, const Size& imageSize = { 640,480 })
+	{
+		Image image(imageSize, Palette::White);
+
+		dumpImplPoly(image);
+
+		image.savePNG(filename);
+	}
+
+	void dumpHoles(const String& filename, const Size& imageSize = { 640,480 })
+	{
+		Image image(imageSize, Palette::White);
+
+		LOG(L"dump to \"", filename, L"\"");
+		dumpImplHoles(image);
+
+		image.savePNG(filename);
+	}
+
+	void debugLog()const
+	{
+		//m_loops.front().front().;
+
+	}
+
 private:
 
 	void dumpImpl(Image& image)
@@ -902,13 +984,36 @@ private:
 		for (int i = 0; i < numOfLoops(); ++i)
 		{
 			//const auto lines = getHoleLines(i);
-			LineString(getLoopLines(i)).write(image, 1.0, Palette::Purple, true);
+			LineString(getLoopLines(i)).write(image, 1.0, RandomColor(), true);
 		}
 
-		for (auto p : m_childs)
+		/*for (auto p : m_childs)
 		{
 			p->dumpImpl(image);
+		}*/
+
+	}
+
+	void dumpImplPoly(Image& image)
+	{
+		for (int i = 0; i < numOfLoops(); ++i)
+		{
+			Polygon(getLoopLines(i)).write(image, HSV(15.0*i, 1, 1).toColor(64));
 		}
+	}
+
+	void dumpImplHoles(Image& image)
+	{
+		for (int i = 0; i < numOfHoles(); ++i)
+		{
+			//LineString(getHoleLines(i)).write(image, 1.0, RandomColor(), true);
+			Polygon(getHoleLines(i)).write(image, RandomColor().setAlpha(64));
+		}
+
+		/*for (auto p : m_childs)
+		{
+			p->dumpImplHoles(image);
+		}*/
 
 	}
 
@@ -1228,6 +1333,8 @@ public:
 
 			int processCount = 0;
 
+			int checkCount = 0;
+
 			const int numOfLoops = m_pTree->numOfLoops();
 
 			/*
@@ -1295,6 +1402,7 @@ public:
 					}
 
 					auto holeVertices = m_pTree->getHoleLines(holeIndex);
+					LOG(L"hole is ClockWise? : ", static_cast<int>(IsClockWise(holeVertices)));
 					std::reverse(holeVertices.begin(), holeVertices.end());
 					const Polygon polygonHole(holeVertices);
 
@@ -1302,9 +1410,11 @@ public:
 					size_t currentIndexOffset = indexOffset;
 					auto pathHole = m_pTree->getHolePath(holeIndex, currentIndexOffset, polygonizeInterval);
 
-					//LOG(L"<A");
+					LOG(L"<A");
 					const auto relation = CalcRetation(pathLoop, pathHole);
-					//LOG(L"B>");
+					LOG(L"B>");
+
+					//CheckIntersection(Format(L"path_check_", checkCount++, L".png"), pathLoop, pathHole);
 
 					//内側に接する場合のみ実際にクリッピングを行う
 					if(relation == ClippingRelation::AdjacentInner)
@@ -1313,11 +1423,13 @@ public:
 
 						SegmentsHolder holeSegmentsHolder;
 
+						LOG(__FUNCTIONW__, L": ", __LINE__);
 						const auto holeSegments = m_pTree->getHoleCurve(holeIndex);
 						for (const auto& holeSegment : holeSegments)
 						{
 							holeSegmentsHolder.add(&holeSegment.first);
 						}
+						LOG(__FUNCTIONW__, L": ", __LINE__);
 
 						//auto results = PolygonSubtract(pathLoop, pathHole, currentIndexOffset);
 						//if (results.second)
@@ -1337,11 +1449,16 @@ public:
 						++processCount;
 						TestSave(pathLoop, pathHole, Format(L"process_", processCount, L".png"));
 
+						LOG(__FUNCTIONW__, L": ", __LINE__);
 						auto results = PolygonSubtract2(pathLoop, pathHole);
+						
+						LOG(__FUNCTIONW__, L": ", __LINE__);
 
 						//std::shared_ptr<LineStringTree> pTree2 = MakeResultPathWithoutDivision(results.first, std::vector<SegmentsHolder>({ holeSegmentsHolder, loopSegmentsHolder }));
 						//std::shared_ptr<LineStringTree> pTree2 = MakeResultPathWithoutDivision(results.first, std::vector<SegmentsHolder>({ loopSegmentsHolder, holeSegmentsHolder }));
 						std::shared_ptr<LineStringTree> pTree2 = MakeResultPathWithoutDivision(results, std::vector<SegmentsHolder>({ loopSegmentsHolder, holeSegmentsHolder }));
+						
+						LOG(__FUNCTIONW__, L": ", __LINE__);
 
 						pTree2->dump(Format(L"dump_process_", processCount, L".png"));
 						LOG(L"dump complete");
@@ -1362,15 +1479,15 @@ public:
 								const Polygon newPolygonLoop(pTree2->getLoopLines(0));
 								LOG_ERROR(L"Before erode area: ", polygonLoop.area(), L", After erode area: ", newPolygonLoop.area());
 								//m_pTree->append(pTree2);
-								m_pTree->insert(pTree2, loopIndex);
-								//m_pTree->insertLoop(loopIndex, pTree2);
+								//m_pTree->insert(pTree2, loopIndex);
+								m_pTree->insertLoop(loopIndex, pTree2);
 							}
 							else
 							{
 								LOG_ERROR(L"Loop was divided to ", pTree2->numOfLoops(), L" new loops");
 								//m_pTree->append(pTree2);
-								m_pTree->insert(pTree2, loopIndex);
-								//m_pTree->insertLoop(loopIndex, pTree2);
+								//m_pTree->insert(pTree2, loopIndex);
+								m_pTree->insertLoop(loopIndex, pTree2);
 							}
 
 							//m_pTree->eraseLoop(loopIndex);
@@ -1387,6 +1504,11 @@ public:
 							leaveLaterIndex = holeIndex;
 						}
 					}
+					else if (relation == ClippingRelation::Unknown)
+					{
+						LOG_ERROR(L"polygon relation was unknown");
+						return;
+					}
 					//無視できるケース（外側に接する or 完全に外側）
 					//else
 					//{
@@ -1398,6 +1520,12 @@ public:
 
 				//m_pTree->eraseHole(0);
 			}
+
+			m_pTree->dump(L"result_loops.png");
+			m_pTree->dumpPoly(L"result_poly.png");
+			m_pTree->dumpHoles(L"result_holes.png");
+
+
 			/*
 			for (size_t holeIndex = 0; m_pTree->hasAnyHole();)
 			{
