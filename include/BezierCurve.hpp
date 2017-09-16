@@ -48,7 +48,7 @@ struct BezierCurve
 		return minT;
 	}
 
-	Optional<double> closestPointOpt(const Vec2& pos, double threshold)const
+	/*Optional<double> closestPointOpt(const Vec2& pos, double threshold)const
 	{
 		double minT = 0.0;
 		double minDistanceSq = get(minT).distanceFromSq(pos);
@@ -71,8 +71,33 @@ struct BezierCurve
 		}
 
 		return minT;
-	}
+	}*/
 
+	Optional<double> closestPointOpt(const Vec2& pos, double threshold, double startT = 0.0, double endT = 1.0)const
+	{
+		double minT = 0.0;
+		double minDistanceSq = get(minT).distanceFromSq(pos);
+
+		const int divNum = 10000;
+		for (int i = 0; i < divNum; ++i)
+		{
+			const double t = startT + (endT - startT)*i / (divNum - 1);
+			const double distanceSq = get(t).distanceFromSq(pos);
+			if (distanceSq < minDistanceSq)
+			{
+				minDistanceSq = distanceSq;
+				minT = t;
+			}
+		}
+
+		if (threshold*threshold < minDistanceSq)
+		{
+			return none;
+		}
+
+		return minT;
+	}
+	
 	double length(double startT, double endT)const
 	{
 		/*
@@ -130,7 +155,7 @@ struct BezierCurve
 		}
 	}
 
-	void writeArrow(Image& image,int divNum = 30, const Color& color = Palette::White, double startT = 0.0, double endT = 1.0)const
+	void writeArrow(Image& image, int divNum = 30, const Color& color = Palette::White, double startT = 0.0, double endT = 1.0)const
 	{
 		for (int i = 0; i < divNum; ++i)
 		{

@@ -9,6 +9,11 @@
 
 #include "include/clipper/clipper.hpp"
 
+//#define DEBUG_OUTPUT_IMAGE
+
+std::vector<std::vector<Vec2>> debugPoss;
+std::vector<CurveSegment> debugSegments;
+
 std::vector<ClipperLib::IntPoint> intersectionPoints;
 std::vector<Line> linesForDebug;
 
@@ -47,7 +52,7 @@ inline void TestSave(const ClipperLib::Path& pathA, const ClipperLib::Path& path
 	image.savePNG(filename);
 }
 
-inline void TestSave2(const std::vector<ClipperLib::Path>& paths, const String& filename)
+inline void TestSave(const std::vector<ClipperLib::Path>& paths, const String& filename)
 {
 	Image image(Window::Size(), Palette::White);
 
@@ -69,6 +74,34 @@ inline void TestSave2(const std::vector<ClipperLib::Path>& paths, const String& 
 	}
 
 	image.savePNG(filename);
+}
+
+inline void TestSave(const std::vector<Vec2>& path, Image& image, bool loop, Color color = Palette::Red)
+{
+	if (loop)
+	{
+		for (size_t i = 0; i < path.size(); ++i)
+		{
+			Line(path[i], path[(i + 1) % path.size()]).writeArrow(image, 1.0, { 5.0,5.0 }, color);
+		}
+	}
+	else
+	{
+		for (size_t i = 0; i + 1 < path.size(); ++i)
+		{
+			Line(path[i], path[i + 1]).writeArrow(image, 1.0, { 5.0,5.0 }, color);
+		}
+	}
+}
+
+inline void TestSave(const std::vector<std::vector<Vec2>>& paths, Image& image)
+{
+	int count = 0;
+	for (const auto& path : paths)
+	{
+		TestSave(path, image, false, HSV(30 * count, 1, 1));
+		++count;
+	}
 }
 
 using Vertices = std::vector<ClipVertex>;
@@ -309,7 +342,7 @@ public:
 
 	void draw(bool isActive)const
 	{
-		if (isActive)
+		if (isActive || Input::KeyD.pressed)
 		{
 			for (const auto& p : m_anchorPoints)
 			{
@@ -337,7 +370,8 @@ public:
 				pp.push_back(m_anchorPoints.back().anchorPoint());
 			}
 
-			LineString(pp).draw(Color(isActive ? Palette::Yellow : Palette::Black, 64), m_isClosed);
+			//LineString(pp).draw(Color(isActive ? Palette::Yellow : Palette::Lime, 64), m_isClosed);
+			LineString(pp).draw(Color(isActive ? Palette::Yellow : Palette::Lightgrey, 128), m_isClosed);
 			
 			if (isActive)
 			{
@@ -669,7 +703,7 @@ public:
 			++m_drawIndex;
 		}
 
-		Window::SetTitle(L"Depth: ", m_drawDepth, L", Poly: ", m_drawIndex, L"/", m_loops.size());
+		Window::SetTitle(L"Depth: ", m_drawDepth, L", Poly: ", m_drawIndex, L"/", m_loops.size(), L", ", Mouse::Pos());
 
 		drawImpl(m_drawDepth, 0, m_drawIndex);
 	}
@@ -716,6 +750,98 @@ public:
 	{
 		auto& curveSegments = isHole ? m_loopHoles.back() : m_loops.back();
 		curveSegments.emplace_back(curveSegment, line);
+	}
+
+	void fixSegments()
+	{
+		/*
+		ただ近づけるだけでは上下に割れてくっ付かない可能性があるためもっと分けるべき？
+		*/
+		//prevSegment -> curveSegment -> postSegment
+		auto fixSegmentStep = [](CurveSegment& prevSegment, CurveSegment& curveSegment, CurveSegment& postSegment)
+		{
+			const auto currentRange = curveSegment.range();
+			const auto prevRange = prevSegment.range();
+			const auto postRange = postSegment.range();
+
+			const Vec2 prevEnd = prevSegment.curve().get(prevRange.second);
+			const Vec2 currentBegin = curveSegment.curve().get(currentRange.first);
+			const Vec2 currentEnd = curveSegment.curve().get(currentRange.second);
+			const Vec2 postBegin = postSegment.curve().get(postRange.first);
+
+			const double distPrevSq = (prevEnd - currentBegin).lengthSq();
+			const double distPostSq = (postBegin - currentEnd).lengthSq();
+
+			if (1.0 < distPrevSq)
+			{
+				const Vec2 mid = (prevEnd + currentBegin)*0.5;
+
+				const double candidatePrevEndT = prevSegment.curve().closestPoint(mid);
+				const Vec2 candidateNewPrevEnd = prevSegment.curve().get(candidatePrevEndT);
+				const double candidateNewDistPrevSq = (candidateNewPrevEnd - currentBegin).lengthSq();
+
+				Vec2 newPrevEnd = prevEnd;
+				double newDistPrevSq = distPrevSq;
+
+				if(candidateNewDistPrevSq < distPrevSq)
+				{
+					prevSegment.setEnd(candidatePrevEndT);
+					newPrevEnd = candidateNewPrevEnd;
+					newDistPrevSq = candidateNewDistPrevSq;
+				}
+
+				const double candidateCurrentBeginT = curveSegment.curve().closestPoint(mid);
+				const Vec2 candidateNewCurrentBegin = curveSegment.curve().get(candidateCurrentBeginT);
+
+				if ((newPrevEnd - candidateNewCurrentBegin).lengthSq() < newDistPrevSq)
+				{
+					curveSegment.setBegin(candidateCurrentBeginT);
+				}
+			}
+
+			if (1.0 < distPostSq)
+			{
+				const Vec2 mid = (postBegin + currentBegin)*0.5;
+
+				const double candidatePostBeginT = postSegment.curve().closestPoint(mid);
+				const Vec2 candidateNewPostBegin = postSegment.curve().get(candidatePostBeginT);
+				const double candidateNewDistPostSq = (candidateNewPostBegin - currentEnd).lengthSq();
+
+				Vec2 newPostBegin = postBegin;
+				double newDistPostSq = distPostSq;
+
+				if (candidateNewDistPostSq < distPostSq)
+				{
+					postSegment.setBegin(candidatePostBeginT);
+					newPostBegin = candidateNewPostBegin;
+					newDistPostSq = candidateNewDistPostSq;
+				}
+
+				const double candidateCurrentEndT = curveSegment.curve().closestPoint(mid);
+				const Vec2 candidateNewCurrentEnd = curveSegment.curve().get(candidateCurrentEndT);
+
+				if ((newPostBegin - candidateNewCurrentEnd).lengthSq() < newDistPostSq)
+				{
+					curveSegment.setEnd(candidateCurrentEndT);
+				}
+			}
+		};
+		
+		for (auto& hole : m_loopHoles)
+		{
+			for (size_t i = 0; i < hole.size(); ++i)
+			{
+				fixSegmentStep(hole[i].first, hole[(i + 1) % hole.size()].first, hole[(i + 2) % hole.size()].first);
+			}
+		}
+
+		for (auto& loop : m_loops)
+		{
+			for (size_t i = 0; i < loop.size(); ++i)
+			{
+				fixSegmentStep(loop[i].first, loop[(i + 1) % loop.size()].first, loop[(i + 2) % loop.size()].first);
+			}
+		}
 	}
 
 	void nextLoop(bool isHole)
@@ -813,12 +939,61 @@ public:
 
 		for (int segment = 0; segment < loopCurve.size(); ++segment)
 		{
+			const auto range = loopCurve[segment].first.range();
+			LOG(L"output path: ", range.first, L" -> ", range.second);
 			loopCurve[segment].first.getSpecificPathHighPrecision(result, zIndex + segment, interval, permissibleError);
 		}
 
 		zIndex += loopCurve.size();
 
 		return result;
+	}
+
+	void debugLoopPath(const String& filenameBase, size_t loopIndex, size_t zIndex, double interval, double permissibleError = 1.0)const
+	{
+		{
+			Image image(640, 480, Palette::White);
+
+			const auto& loopCurve = getLoopCurve(loopIndex);
+
+			std::vector<Vec2> result;
+
+			for (int segment = 0; segment < loopCurve.size(); ++segment)
+			{
+				loopCurve[segment].first.getSpecificPathHighPrecision(result, interval, permissibleError);
+			}
+
+			LineString(result).write(image, 1.0, Palette::Cyan, true);
+
+			image.savePNG(Format(filenameBase, L"_loop.png"));
+		}
+
+		{
+			Image image(640, 480, Palette::White);
+
+			const auto& loopLines = getLoopLines(loopIndex);
+			
+			LineString(loopLines).write(image, 1.0, Palette::Lime, true);
+
+			image.savePNG(Format(filenameBase, L"_curve.png"));
+		}
+
+		{
+			Image image(640, 480, Palette::White);
+
+			size_t index = 1;
+			const auto& loopPath = getLoopPath(loopIndex, index, interval, permissibleError);
+
+			std::vector<Vec2> path;
+			for (const auto& p : loopPath)
+			{
+				path.push_back(ClipVertex(p).m_pos);
+			}
+
+			LineString(path).write(image, 1.0, Palette::Orange, true);
+
+			image.savePNG(Format(filenameBase, L"_path.png"));
+		}
 	}
 
 	ClipperLib::Path getHolePath(size_t holeIndex, size_t& zIndex, double interval, double permissibleError = 1.0)const
@@ -878,12 +1053,13 @@ public:
 		LOG(tag, L" Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
 	}
 
-	void dump(const String& filename, const Size& imageSize = { 640,480 })
+	void dump(const String& filename, const String& filename2, const Size& imageSize = { 640,480 })
 	{
 		Image image(imageSize, Palette::White);
+		Image image2(imageSize, Palette::White);
 
 		LOG(L"dump to \"", filename, L"\"");
-		dumpImpl(image);
+		dumpImpl(image, image2);
 
 		//for (auto i : step(m_lines.size()))
 		//{
@@ -905,6 +1081,7 @@ public:
 		//}
 
 		image.savePNG(filename);
+		image2.savePNG(filename2);
 	}
 
 	void dumpPoly(const String& filename, const Size& imageSize = { 640,480 })
@@ -934,7 +1111,7 @@ public:
 
 private:
 
-	void dumpImpl(Image& image)
+	void dumpImpl(Image& image, Image& image2)
 	{
 		//for (int i = 0; i < numOfLoops(); ++i)
 		//{
@@ -985,6 +1162,18 @@ private:
 		{
 			//const auto lines = getHoleLines(i);
 			LineString(getLoopLines(i)).write(image, 1.0, RandomColor(), true);
+		}
+
+		for (int i = 0; i < numOfLoops(); ++i)
+		{
+			//const auto lines = getHoleLines(i);
+			const auto& segments = getLoopCurve(i);
+			const Color color = RandomColor();
+			for (const auto& segment : segments)
+			{
+				const auto range = segment.first.range();
+				segment.first.curve().write(image2, 30, color, range.first, range.second);
+			}
 		}
 
 		/*for (auto p : m_childs)
@@ -1296,6 +1485,16 @@ public:
 				//m_pTree = makeResult(resultPolyTree);
 				m_pTree = MakeResultPath(resultPaths, m_paths);
 				m_pTree->logger(L"After MakeResultPath");
+
+#ifdef DEBUG_OUTPUT_IMAGE
+				//m_pTree->dump(L"original_loops.png", L"original_curves.png");
+				for (size_t ii = 0; ii < m_pTree->numOfLoops(); ++ii)
+				{
+					m_pTree->debugLoopPath(Format(L"original_path", ii, L"_test"), ii, 1, polygonizeInterval);
+				}
+#endif
+				
+				//return;
 			}
 
 			class SegmentsHolder
@@ -1324,12 +1523,18 @@ public:
 					m_curveSegmentPtrs.push_back(ptr);
 				}
 
+				void read(std::vector<CurveSegment>& output)const
+				{
+					for (auto p : m_curveSegmentPtrs)
+					{
+						output.push_back(*p);
+					}
+				}
+
 			private:
 
 				std::vector<const CurveSegment*> m_curveSegmentPtrs;
 			};
-
-			m_pTree->dump(L"original.png");
 
 			int processCount = 0;
 
@@ -1337,6 +1542,7 @@ public:
 
 			const int numOfLoops = m_pTree->numOfLoops();
 
+#ifdef DEBUG_OUTPUT_IMAGE
 			/*
 			for (int loopIndex = 0; loopIndex < numOfLoops; ++loopIndex)
 			{
@@ -1345,18 +1551,31 @@ public:
 
 				TestSave2({ pathLoop }, Format(L"inputPath_", loopIndex, L".png"));
 			}*/
+#endif
 
 			for (int loopIndex = 0; loopIndex < numOfLoops; ++loopIndex)
 			{
-				/*{
+#ifdef DEBUG_OUTPUT_IMAGE
+				{
 					for (int innerLoopIndex = 0; innerLoopIndex < numOfLoops; ++innerLoopIndex)
 					{
 						size_t innerIndexOffset = 1;
 						auto innerPathLoop = m_pTree->getLoopPath(innerLoopIndex, innerIndexOffset, polygonizeInterval);
+						auto innerPathLines = m_pTree->getLoopLines(innerLoopIndex);
+						
+						TestSave({ innerPathLoop }, Format(L"innerInputPath_", processCount, L"_", innerLoopIndex, L".png"));
+						Image image(640, 480, Palette::White);
+						TestSave(innerPathLines, image, true);
+						image.savePNG(Format(L"innerInputPath_", processCount, L"_", innerLoopIndex, L"_lines.png"));
 
-						TestSave2({ innerPathLoop }, Format(L"innerInputPath_", processCount, L"_", innerLoopIndex, L".png"));
+						if (processCount == 0 && innerLoopIndex == 2)
+						{
+							//m_pTree->debugLoopPath(Format(L"path_dump_", checkCount, L"_loop.png"), Format(L"path_dump_", checkCount, L"_curve.png"), loopIndex, 1, polygonizeInterval);
+							m_pTree->debugLoopPath(Format(L"path_dump_", checkCount), loopIndex, 1, polygonizeInterval);
+						}
 					}
-				}*/
+				}
+#endif
 
 				Optional<size_t> leaveLaterIndex;
 
@@ -1374,6 +1593,10 @@ public:
 					}
 
 					size_t indexOffset = 1;
+					/*if (checkCount == 6)
+					{
+						m_pTree->debugLoopPath(Format(L"path_dump_", checkCount, L"_loop.png"), Format(L"path_dump_", checkCount, L"_curve.png"), loopIndex, indexOffset, polygonizeInterval);
+					}*/
 					auto pathLoop = m_pTree->getLoopPath(loopIndex, indexOffset, polygonizeInterval);
 					///
 
@@ -1414,7 +1637,9 @@ public:
 					const auto relation = CalcRetation(pathLoop, pathHole);
 					LOG(L"B>");
 
-					//CheckIntersection(Format(L"path_check_", checkCount++, L".png"), pathLoop, pathHole);
+#ifdef DEBUG_OUTPUT_IMAGE
+					CheckIntersection(Format(L"path_check_", checkCount++, L".png"), pathLoop, pathHole);
+#endif
 
 					//内側に接する場合のみ実際にクリッピングを行う
 					if(relation == ClippingRelation::AdjacentInner)
@@ -1447,7 +1672,10 @@ public:
 						//}
 
 						++processCount;
+
+#ifdef DEBUG_OUTPUT_IMAGE
 						TestSave(pathLoop, pathHole, Format(L"process_", processCount, L".png"));
+#endif
 
 						LOG(__FUNCTIONW__, L": ", __LINE__);
 						auto results = PolygonSubtract2(pathLoop, pathHole);
@@ -1460,11 +1688,18 @@ public:
 						
 						LOG(__FUNCTIONW__, L": ", __LINE__);
 
-						pTree2->dump(Format(L"dump_process_", processCount, L".png"));
+#ifdef DEBUG_OUTPUT_IMAGE
+						pTree2->dump(Format(L"dump_process_", processCount, L"_loops.png"), Format(L"dump_process_", processCount, L"_curves.png"));
 						LOG(L"dump complete");
 						
-						TestSave2(results, Format(L"process_", processCount, L"_result.png"));
+						TestSave(results, Format(L"process_", processCount, L"_result.png"));
+#endif
 
+						/*for (size_t ii = 0; ii < pTree2->numOfLoops(); ++ii)
+						{
+							pTree2->debugLoopPath(Format(L"result_", processCount, L"_path", ii, L"_test"), ii, 1, polygonizeInterval);
+						}*/
+						
 						if (pTree2->hasAnyHole())
 						{
 							LOG_ERROR(L"L(", __LINE__, L"): 穴の除去に失敗");
@@ -1495,6 +1730,12 @@ public:
 
 						//クリッピングの適用により接するようになったかもしれない
 						leaveLaterIndex = none;
+
+						/*loopSegmentsHolder.read(debugSegments);
+						holeSegmentsHolder.read(debugSegments);*/
+
+						//デバッグ用
+						//return;
 					}
 					//完全に包含する場合は後回しにする
 					else if (relation == ClippingRelation::Contain)
@@ -1521,7 +1762,9 @@ public:
 				//m_pTree->eraseHole(0);
 			}
 
-			m_pTree->dump(L"result_loops.png");
+#ifdef DEBUG_OUTPUT_IMAGE
+			m_pTree->dump(L"result_loops.png", L"result_curves.png");
+#endif
 			m_pTree->dumpPoly(L"result_poly.png");
 			m_pTree->dumpHoles(L"result_holes.png");
 
@@ -1716,8 +1959,7 @@ public:
 		}
 		else if (m_pTree)
 		{
-			m_pTree->draw();
-			//m_pTree->drawAll();
+			//m_pTree->draw();
 		}
 
 		if (Input::KeyD.pressed)
@@ -1741,6 +1983,41 @@ public:
 				Circle(ClipVertex(p.X, p.Y, p.Z).m_pos, 5).drawFrame(1, 0, HSV(15.0*static_cast<int>(p.Z & INT32_MAX), 1, 1));
 			}*/
 		}
+
+		Window::SetTitle(Mouse::Pos());
+
+		if (!debugSegments.empty())
+		{
+			static int count = 0;
+
+			if (Input::KeyLeft.clicked)
+			{
+				--count;
+			}
+			if (Input::KeyRight.clicked)
+			{
+				++count;
+			}
+			count = Clamp<int>(count, 0, debugSegments.size() - 1);
+
+			const auto& curveSegment = debugSegments[count];
+			//curveSegment.curve().drawArrow(8, HSV(15 * i, 1, 1), curveSegment.range().first, curveSegment.range().second);
+			curveSegment.curve().drawArrow(8, Palette::Orange, curveSegment.range().first, curveSegment.range().second);
+
+			Window::SetTitle(count + 1, L", ", Mouse::Pos());
+		}
+
+		for (const auto index : step(debugPoss.size()))
+		{
+			const Color color = HSV(index*17.0);
+			const auto& debugLoop = debugPoss[index];
+			for (size_t i = 0; i < debugLoop.size(); ++i)
+			{
+				Line(debugLoop[i], debugLoop[(i + 1) % debugLoop.size()]).drawArrow(1.0, {5.0,5.0}, color);
+				//Circle(debugLoop[i], 5).drawFrame(1.0, 0.0);
+			}
+		}
+		
 		
 		
 		/*if (Input::KeyShift.pressed)
@@ -1812,7 +2089,7 @@ private:
 		return{};
 	}
 	
-	template<class PathHolderType>
+	/*template<class PathHolderType>
 	static Optional<BezierCurve> GetSegmentCurve(int zIndex, const PathHolderType& originalPaths)
 	{
 		if (const auto indicesOpt = UnpackZIndex(zIndex, originalPaths))
@@ -1820,16 +2097,28 @@ private:
 			return originalPaths[indicesOpt.value().first].segment(indicesOpt.value().second).curve();
 		}
 
-		return none;	
+		return none;
+	}*/
+	template<class PathHolderType>
+	static Optional<CurveSegment> GetSegmentCurve(int zIndex, const PathHolderType& originalPaths)
+	{
+		if (const auto indicesOpt = UnpackZIndex(zIndex, originalPaths))
+		{
+			return originalPaths[indicesOpt.value().first].segment(indicesOpt.value().second);
+		}
+
+		return none;
 	}
 
 	template<class PathHolderType>
-	static int CombineZIndex(const ClipVertex& p1, ClipVertex& p2, const PathHolderType& originalPaths)
+	static int CombineZIndex(const ClipVertex& p1, ClipVertex& p2, const PathHolderType& originalPaths,bool debugFlag=false)
 	{
 		const int lower1 = static_cast<int>(p1.m_Z & INT32_MAX);
 		const int upper1 = static_cast<int>(p1.m_Z >> 32);
 		const int lower2 = static_cast<int>(p2.m_Z & INT32_MAX);
 		const int upper2 = static_cast<int>(p2.m_Z >> 32);
+
+		LOG_DEBUG(L"CombineZIndex(", Vec4(p1.m_pos, upper1, lower1), L", ", Vec4(p2.m_pos, upper2, lower2), L")");
 
 		//連続している（普通のケース）
 		if (lower1 == lower2)
@@ -1867,29 +2156,49 @@ private:
 		double lengthSq1 = 0, lengthSq2 = 0;
 
 		Optional<double> curve1T1, curve1T2, curve2T1, curve2T2;
-		Optional<BezierCurve> curve1Opt, curve2Opt;
+		Optional<CurveSegment> curve1Opt, curve2Opt;
+
+		const double error = 3.0;
 
 		if (curve1Opt = GetSegmentCurve(lower1, originalPaths))
 		{
 			const auto& curve1 = curve1Opt.value();
-			curve1T1 = curve1.closestPointOpt(p1.m_pos, 0.1);
-			curve1T2 = curve1.closestPointOpt(p2.m_pos, 0.1);
+			curve1T1 = curve1.closestPointOpt(p1.m_pos, error);
+			curve1T2 = curve1.closestPointOpt(p2.m_pos, error);
+
+			//if (lower1 == 6 && lower2 == 7)
+			if(debugFlag)
+			{
+				LOG(L"================================");
+				LOG(L"Curve1: ", curve1.curve(0.0), L" -> ", curve1.curve(1.0));
+				LOG(L"case p1: ", p1.m_pos, L" then ", curve1T1);
+				LOG(L"case p2: ", p2.m_pos, L" then ", curve1T2);
+			}
 
 			if (curve1T1 && curve1T2)
 			{
-				lengthSq1 = Line(curve1(curve1T1.value()), curve1(curve1T2.value())).lengthSq();
+				lengthSq1 = Line(curve1.curve(curve1T1.value()), curve1.curve(curve1T2.value())).lengthSq();
 			}
 		}
 
 		if (curve2Opt = GetSegmentCurve(lower2, originalPaths))
 		{
 			const auto& curve2 = curve2Opt.value();
-			curve2T1 = curve2.closestPointOpt(p1.m_pos, 0.1);
-			curve2T2 = curve2.closestPointOpt(p2.m_pos, 0.1);
+			curve2T1 = curve2.closestPointOpt(p1.m_pos, error);
+			curve2T2 = curve2.closestPointOpt(p2.m_pos, error);
+
+			//if (lower1 == 6 && lower2 == 7)
+			if (debugFlag)
+			{
+				LOG(L"Curve2: ", curve2.curve(0.0), L" -> ", curve2.curve(1.0));
+				LOG(L"case p1: ", p1.m_pos, L" then ", curve2T1);
+				LOG(L"case p2: ", p2.m_pos, L" then ", curve2T2);
+				LOG(L"--------------------------------");
+			}
 
 			if (curve2T1 && curve2T2)
 			{
-				lengthSq2 = Line(curve2(curve2T1.value()), curve2(curve2T2.value())).lengthSq();
+				lengthSq2 = Line(curve2.curve(curve2T1.value()), curve2.curve(curve2T2.value())).lengthSq();
 			}
 		}
 		
@@ -1898,12 +2207,18 @@ private:
 		{
 			if (curve1T1 && curve2T2)
 			{
+				/*if (debugFlag)
+				{
+					debugSegments.push_back(CurveSegment(curve1Opt.value(), 0, 1));
+					debugSegments.push_back(CurveSegment(curve2Opt.value(), 0, 1));
+				}*/
 				/*
 				//この二点が同じ点を指すはず
 				curve1T2 = curve1Opt.value().closestPoint(p2.m_pos);
 				curve2T1 = curve2Opt.value().closestPoint(p1.m_pos);
 				*/
-				const Vec2 moveTo = curve2Opt.value().get(curve2Opt.value().closestPoint(p1.m_pos));
+				//const Vec2 moveTo = curve2Opt.value().get(curve2Opt.value().closestPoint(p1.m_pos));
+				const Vec2 moveTo = curve2Opt.value().curve().get(curve2Opt.value().curve().closestPoint(p1.m_pos));
 				LOG(L"Path point ", p2.m_pos, L" is moved to ", moveTo);
 				p2.m_pos = moveTo;
 				p2.m_Z = lower2;
@@ -1917,6 +2232,7 @@ private:
 			}
 		}
 
+		LOG(L"Path length lengthSq1 < lengthSq2 = ", lengthSq1 < lengthSq2);
 		return lengthSq1 < lengthSq2 ? lower2 : lower1;
 	}
 	
@@ -2011,21 +2327,28 @@ private:
 			for (const auto& loop : loops)
 			{
 				Curves curves;
+				std::vector<Vec2> debugLoop;
 				for (const auto& point : loop)
 				{
 					if (curves.empty() || curves.back().m_Z != point.m_Z)
 					{
 						curves.push_back(point);
+						debugLoop.push_back(point.m_pos);
 					}
 				}
+				//debugPoss.push_back(debugLoop);
 				loopCurves.push_back(curves);
 			}
-
+			
 			int loopCount = 0;
-			std::vector<SegmentInfo> segmentInfos;
+
+			std::vector<std::vector<std::pair<int, Vec2>>> segmentStartss;
 			for (auto& loopCurve : loopCurves)
 			{
-				pTree->nextLoop(isHoles[loopCount]);
+				const auto color = RandomColor().setAlpha(64);
+
+				segmentStartss.emplace_back();
+				auto& segmentStarts = segmentStartss.back();
 
 				for (auto i : step(loopCurve.size()))
 				{
@@ -2033,6 +2356,112 @@ private:
 
 					const Vec2 startPos = loopCurve[i].m_pos;
 					const Vec2 endPos = loopCurve[(i + 1) % loopCurve.size()].m_pos;
+
+					segmentStarts.emplace_back(zIndex, startPos);
+				}
+			}
+			
+			std::vector<std::vector<std::pair<int, Vec2>>> uniqueSegmentStartss;
+			for (auto& segmentStarts : segmentStartss)
+			{
+				uniqueSegmentStartss.emplace_back();
+				auto& uniqueSegmentStarts = uniqueSegmentStartss.back();
+
+				if (segmentStarts.empty())
+				{
+					continue;
+				}
+				
+				uniqueSegmentStarts.push_back(segmentStarts.front());
+				
+				for (const auto& segmentStart : segmentStarts)
+				{
+					auto& currentUniqueSegmentStart = uniqueSegmentStarts.back();
+
+					//同じセグメントであれば、終端を更新する
+					//異なるセグメントならば追加する
+					if (currentUniqueSegmentStart.first != segmentStart.first)
+					{
+						uniqueSegmentStarts.push_back(segmentStart);
+					}
+				}
+			}
+
+			int imageSaveCount = 0;
+
+			for (const auto& segmentStarts : uniqueSegmentStartss)
+			{
+				pTree->nextLoop(isHoles[loopCount]);
+
+				Image image(640, 480, Palette::White);
+
+				std::vector<Vec2> debugLoop;
+
+				//LOG_DEBUG(L"Curve: ");
+				for (auto i : step(segmentStarts.size()))
+				{
+					const auto& segmentStart = segmentStarts[i];
+
+					const int zIndex = segmentStarts[i].first;
+
+					const Vec2 startPos = segmentStarts[i].second;
+					const Vec2 endPos = segmentStarts[(i + 1) % segmentStarts.size()].second;
+
+					debugLoop.push_back(startPos);
+
+					//LOG_DEBUG(L"    Pos:", startPos, L", index: ", zIndex);
+
+					if (const auto indicesOpt = UnpackZIndex(zIndex, originalPaths))
+					{
+						const auto& indices = indicesOpt.value();
+
+						const auto curve = originalPaths[indices.first].segment(indices.second).curve();
+
+						const double startT = curve.closestPoint(startPos);
+						const double endT = curve.closestPoint(endPos);
+
+						//LOG_DEBUG(L"    Result1:", startPos, L" -> ", curve(startT));
+						//LOG_DEBUG(L"    Result2:", endPos, L" -> ", curve(endT));
+						
+						pTree->addSegment(isHoles[loopCount], CurveSegment(curve, startT, endT), Line(startPos, endPos));
+
+						curve.write(image, 30, RandomColor().setAlpha(128), startT, endT);
+					}
+				}
+
+				//debugPoss.push_back(debugLoop);
+
+#ifdef DEBUG_OUTPUT_IMAGE
+				//image.savePNG(Format(L"debug_", imageSaveCount++, L".png"));
+#endif
+
+				++loopCount;
+			}
+
+			pTree->fixSegments();
+
+			/*
+			for (auto& loopCurve : loopCurves)
+			{
+				Image image(640, 480, Palette::White);
+
+				pTree->nextLoop(isHoles[loopCount]);
+
+				std::vector<Vec2> debugLoop;
+
+				const auto color = RandomColor().setAlpha(64);
+
+				LOG(L"Curve: ");
+				for (auto i : step(loopCurve.size()))
+				{
+					const int zIndex = CombineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()], originalPaths);
+
+					const Vec2 startPos = loopCurve[i].m_pos;
+					const Vec2 endPos = loopCurve[(i + 1) % loopCurve.size()].m_pos;
+
+					LOG(L"    Pos:", startPos, L", index: ", zIndex);
+
+					debugLoop.push_back(startPos);
 
 					//m_segmentPoss.push_back(startPos);
 
@@ -2046,13 +2475,22 @@ private:
 						const double endT = curve.closestPoint(endPos);
 
 						pTree->addSegment(isHoles[loopCount], CurveSegment(curve, startT, endT), Line(startPos, endPos));
+
+						curve.write(image, 30, RandomColor().setAlpha(128), startT, endT);
 					}
 				}
+
+				image.savePNG(Format(L"debug_", imageSaveCount++, L".png"));
+
+				debugPoss.push_back(debugLoop);
 
 				pTree->logger(Format(L"B(", loopCount, L")"));
 
 				++loopCount;
 			}
+			*/
+
+			/*image.savePNG(Format(L"debug_", imageSaveCount++, L".png"));*/
 		}
 
 		return pTree;
@@ -2069,6 +2507,15 @@ private:
 			const auto loops = PathToPolygons(contour, false);
 
 			std::vector<char> isHoles;
+
+			const auto upper = [](ClipperLib::cInt z)
+			{
+				return static_cast<int>(z >> 32);
+			};
+			const auto lower = [](ClipperLib::cInt z)
+			{
+				return static_cast<int>(z&INT32_MAX);
+			};
 
 			//ポリゴン取得（デバッグ用・穴の包含判定用）
 			{
@@ -2102,30 +2549,99 @@ private:
 			for (const auto& loop : loops)
 			{
 				Curves curves;
+				std::vector<Vec2> debugLoop;
 				for (const auto& point : loop)
 				{
+					LOG(L"point: ", Vec4(point.m_pos, upper(point.m_Z), lower(point.m_Z)));
+
 					if (curves.empty() || curves.back().m_Z != point.m_Z)
 					{
 						curves.push_back(point);
+						debugLoop.push_back(point.m_pos);
 					}
 				}
+				//debugPoss.push_back(debugLoop);
 				loopCurves.push_back(curves);
 			}
 
 			int loopCount = 0;
-			std::vector<SegmentInfo> segmentInfos;
+
+			LOG(L"After Combine: ");
+			std::vector<std::vector<std::pair<int, Vec2>>> segmentStartss;
 			for (auto& loopCurve : loopCurves)
 			{
-				pTree->nextLoop(isHoles[loopCount]);
+				const auto color = RandomColor().setAlpha(64);
+
+				std::vector<Vec2> debugLoop;
+
+				segmentStartss.emplace_back();
+				auto& segmentStarts = segmentStartss.back();
 
 				for (auto i : step(loopCurve.size()))
 				{
-					const int zIndex = CombineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()], originalPaths);
+					const int zIndex = CombineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()], originalPaths, true);
 
 					const Vec2 startPos = loopCurve[i].m_pos;
 					const Vec2 endPos = loopCurve[(i + 1) % loopCurve.size()].m_pos;
 
-					//m_segmentPoss.push_back(startPos);
+					debugLoop.push_back(startPos);
+					segmentStarts.emplace_back(zIndex, startPos);
+
+					LOG(L"    point: ", Vec3(startPos, zIndex));
+				}
+
+				//debugPoss.push_back(debugLoop);
+			}
+
+			std::vector<std::vector<std::pair<int, Vec2>>> uniqueSegmentStartss;
+			for (auto& segmentStarts : segmentStartss)
+			{
+				uniqueSegmentStartss.emplace_back();
+				auto& uniqueSegmentStarts = uniqueSegmentStartss.back();
+
+				if (segmentStarts.empty())
+				{
+					continue;
+				}
+
+				uniqueSegmentStarts.push_back(segmentStarts.front());
+
+				for (const auto& segmentStart : segmentStarts)
+				{
+					auto& currentUniqueSegmentStart = uniqueSegmentStarts.back();
+
+					//同じセグメントであれば無視する（終端を更新する）
+					//異なるセグメントならば追加する
+					if (currentUniqueSegmentStart.first != segmentStart.first)
+					{
+						uniqueSegmentStarts.push_back(segmentStart);
+					}
+				}
+			}
+
+			static int imageSaveCount = 0;
+
+			for (const auto& segmentStarts : uniqueSegmentStartss)
+			{
+				pTree->nextLoop(isHoles[loopCount]);
+
+				Image image(640, 480, Palette::White);
+
+				std::vector<Vec2> debugLoop;
+
+				LOG_DEBUG(L"Curve: ");
+				for (auto i : step(segmentStarts.size()))
+				{
+					const auto& segmentStart = segmentStarts[i];
+
+					const int zIndex = segmentStarts[i].first;
+
+					const Vec2 startPos = segmentStarts[i].second;
+					const Vec2 endPos = segmentStarts[(i + 1) % segmentStarts.size()].second;
+
+					debugLoop.push_back(startPos);
+
+					LOG_DEBUG(L"    Pos:", startPos, L", index: ", zIndex);
 
 					if (const auto indicesOpt = UnpackZIndex(zIndex, originalPaths))
 					{
@@ -2136,18 +2652,172 @@ private:
 						const double startT = curve.closestPoint(startPos);
 						const double endT = curve.closestPoint(endPos);
 
+						LOG_DEBUG(L"    Result1:", startPos, L" -> ", curve(startT));
+						LOG_DEBUG(L"    Result2:", endPos, L" -> ", curve(endT));
+
 						pTree->addSegment(isHoles[loopCount], CurveSegment(curve, startT, endT), Line(startPos, endPos));
+
+						curve.write(image, 30, RandomColor().setAlpha(128), startT, endT);
 					}
 				}
 
-				pTree->logger(Format(L"B(", loopCount, L")"));
+				debugPoss.push_back(debugLoop);
+
+#ifdef DEBUG_OUTPUT_IMAGE
+				image.savePNG(Format(L"debug_", imageSaveCount++, L".png"));
+#endif
 
 				++loopCount;
 			}
+
+			pTree->fixSegments();
+
+			/*
+			for (auto& loopCurve : loopCurves)
+			{
+			Image image(640, 480, Palette::White);
+
+			pTree->nextLoop(isHoles[loopCount]);
+
+			std::vector<Vec2> debugLoop;
+
+			const auto color = RandomColor().setAlpha(64);
+
+			LOG(L"Curve: ");
+			for (auto i : step(loopCurve.size()))
+			{
+			const int zIndex = CombineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()], originalPaths);
+
+			const Vec2 startPos = loopCurve[i].m_pos;
+			const Vec2 endPos = loopCurve[(i + 1) % loopCurve.size()].m_pos;
+
+			LOG(L"    Pos:", startPos, L", index: ", zIndex);
+
+			debugLoop.push_back(startPos);
+
+			//m_segmentPoss.push_back(startPos);
+
+			if (const auto indicesOpt = UnpackZIndex(zIndex, originalPaths))
+			{
+			const auto& indices = indicesOpt.value();
+
+			const auto curve = originalPaths[indices.first].segment(indices.second).curve();
+
+			const double startT = curve.closestPoint(startPos);
+			const double endT = curve.closestPoint(endPos);
+
+			pTree->addSegment(isHoles[loopCount], CurveSegment(curve, startT, endT), Line(startPos, endPos));
+
+			curve.write(image, 30, RandomColor().setAlpha(128), startT, endT);
+			}
+			}
+
+			image.savePNG(Format(L"debug_", imageSaveCount++, L".png"));
+
+			debugPoss.push_back(debugLoop);
+
+			pTree->logger(Format(L"B(", loopCount, L")"));
+
+			++loopCount;
+			}
+			*/
+
+			/*image.savePNG(Format(L"debug_", imageSaveCount++, L".png"));*/
 		}
 
 		return pTree;
 	}
+
+	//template<class PathHolderType>
+	//static std::shared_ptr<LineStringTree> MakeResultPathWithoutDivision(const ClipperLib::Paths& resultPaths, const PathHolderType& originalPaths)
+	//{
+	//	std::shared_ptr<LineStringTree> pTree = std::make_shared<LineStringTree>();
+
+	//	for (const auto& contour : resultPaths)
+	//	{
+	//		//MakeResultPathとの差分はここだけ（いまのところ）
+	//		const auto loops = PathToPolygons(contour, false);
+
+	//		std::vector<char> isHoles;
+
+	//		//ポリゴン取得（デバッグ用・穴の包含判定用）
+	//		{
+	//			const auto toInt = [](ClipperLib::cInt z)
+	//			{
+	//				return static_cast<int>(z&INT32_MAX) + static_cast<int>(z >> 32);
+	//			};
+
+	//			int count = 0;
+	//			for (const auto& loop : loops)
+	//			{
+	//				isHoles.push_back(!IsClockWise(loop));
+
+	//				pTree->nextLineColor(isHoles.back());
+
+	//				for (size_t i = 0; i < loop.size(); ++i)
+	//				{
+	//					//pTree->addLineColor(isHoles.back(), Line(loop[i].m_pos, loop[(i + 1) % loop.size()].m_pos), HSV(15.0*count, 1, 1));
+	//					pTree->addLineColor(isHoles.back(), loop[i].m_pos, HSV(15.0*count, 1, 1));
+	//				}
+
+	//				pTree->logger(Format(L"A(", count, L")"));
+
+	//				++count;
+	//			}
+	//		}
+
+	//		using Curves = std::vector<ClipVertex>;
+	//		std::vector<Curves> loopCurves;
+
+	//		for (const auto& loop : loops)
+	//		{
+	//			Curves curves;
+	//			for (const auto& point : loop)
+	//			{
+	//				if (curves.empty() || curves.back().m_Z != point.m_Z)
+	//				{
+	//					curves.push_back(point);
+	//				}
+	//			}
+	//			loopCurves.push_back(curves);
+	//		}
+
+	//		int loopCount = 0;
+	//		std::vector<SegmentInfo> segmentInfos;
+	//		for (auto& loopCurve : loopCurves)
+	//		{
+	//			pTree->nextLoop(isHoles[loopCount]);
+
+	//			for (auto i : step(loopCurve.size()))
+	//			{
+	//				const int zIndex = CombineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()], originalPaths);
+
+	//				const Vec2 startPos = loopCurve[i].m_pos;
+	//				const Vec2 endPos = loopCurve[(i + 1) % loopCurve.size()].m_pos;
+
+	//				//m_segmentPoss.push_back(startPos);
+
+	//				if (const auto indicesOpt = UnpackZIndex(zIndex, originalPaths))
+	//				{
+	//					const auto& indices = indicesOpt.value();
+
+	//					const auto curve = originalPaths[indices.first].segment(indices.second).curve();
+
+	//					const double startT = curve.closestPoint(startPos);
+	//					const double endT = curve.closestPoint(endPos);
+
+	//					pTree->addSegment(isHoles[loopCount], CurveSegment(curve, startT, endT), Line(startPos, endPos));
+	//				}
+	//			}
+
+	//			pTree->logger(Format(L"B(", loopCount, L")"));
+
+	//			++loopCount;
+	//		}
+	//	}
+
+	//	return pTree;
+	//}
 
 	//std::shared_ptr<LineStringTree> makeResultPath(ClipperLib::Paths& paths)
 	//{
@@ -2427,15 +3097,9 @@ private:
 
 					for (auto i : step(loopCurve.size()))
 					{
-						/*const Vec2 startPos = loopCurve[i].m_pos;
-						const Vec2 endPos = loopCurve[(i + 1) % loopCurve.size()].m_pos;*/
-						
 						const int zIndex = CombineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()], m_paths);
 						const Vec2 startPos = loopCurve[i].m_pos;
 						const Vec2 endPos = loopCurve[(i + 1) % loopCurve.size()].m_pos;
-
-						//const int zIndex = combineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()]);
-						//const int zIndex = combineZIndex(loopCurve, i, (i + 1) % loopCurve.size());
 
 						//m_lineForDebug.push_back(Line(startPos, endPos));
 						//linesForDebug.push_back(Line(startPos, endPos));
@@ -2451,11 +3115,6 @@ private:
 							const double startT = curve.closestPoint(startPos);
 							const double endT = curve.closestPoint(endPos);
 
-							/*if (zIndex == 39 || zIndex == 40)
-							{
-								linesForDebug.push_back(Line(curve(startT), curve(endT)));
-							}*/
-							
 							pTree->addSegment(isHoles[loopCount], CurveSegment(curve, startT, endT), Line(startPos, endPos));
 						}
 					}
@@ -2491,6 +3150,8 @@ private:
 	//std::vector<Vec2> m_segmentPoss;
 
 	//std::vector<Line> m_lineForDebug;
+
+	//std::vector<Vec2> m_debugPoss;
 
 	std::shared_ptr<LineStringTree> m_pTree;
 };

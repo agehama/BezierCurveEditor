@@ -134,10 +134,25 @@ public:
 		return m_curve;
 	}
 
+	Vec2 curve(double t)const
+	{
+		return m_curve(t);
+	}
+
 	void setRange(double startT, double endT)
 	{
 		m_startT = startT;
 		m_endT = endT;
+	}
+
+	void setBegin(double t)
+	{
+		m_startT = t;
+	}
+
+	void setEnd(double t)
+	{
+		m_endT = t;
 	}
 
 	std::pair<double, double> range()const
@@ -207,6 +222,11 @@ public:
 	}
 	*/
 
+	Optional<double> closestPointOpt(const Vec2& pos, double threshold)const
+	{
+		return m_curve.closestPointOpt(pos, threshold, m_startT, m_endT);
+	}
+
 private:
 
 	void getSpecificPathHighPrecisionImpl(std::function<void(const Vec2& pos, size_t zIndex)> adder, size_t zIndex, double interval, double permissibleError = 1.0)const
@@ -216,23 +236,27 @@ private:
 
 		const auto binarySearchStep = [&](double prevT, double leftBound, double rightBound)->double
 		{
+			//const bool toRight = prevT < (leftBound + rightBound)*0.5;
+
 			for (int count = 0; count < 100; ++count)
 			{
 				double newT = (leftBound + rightBound)*0.5;
 
-				const double distance = m_curve.length(prevT, newT);
+				const double distance = m_curve.length(Min(prevT, newT), Max(prevT, newT));
 				if ((interval - permissibleError) <= distance && distance <= (interval + permissibleError))//OK!
 				{
 					const Vec2 newPos = m_curve(newT);
 					adder(newPos, zIndex);
 					return newT;
 				}
-				else if (distance < interval - permissibleError)//‘«‚è‚È‚¢
+				else if (distance < interval - permissibleError)//i‚Ý‚ª‘«‚è‚È‚¢
 				{
+					//(toRight ? leftBound : rightBound) = newT;
 					leftBound = newT;
 				}
 				else//i‚Ý‚·‚¬
 				{
+					//(toRight ? rightBound : leftBound) = newT;
 					rightBound = newT;
 				}
 			}
@@ -243,9 +267,24 @@ private:
 		};
 
 		double currentT = m_startT;
-		for (; interval + permissibleError < m_curve.length(currentT, m_endT);)
+
+		/*
+		CurveSegment‚Í•ûŒü‚ðŽ‚Á‚Ä‚¢‚é‚Ì‚Å‹t‚à‚ ‚è“¾‚é
+		*/
+		if (m_startT < m_endT)
 		{
-			currentT = binarySearchStep(currentT, currentT, m_endT);
+			for (; interval + permissibleError < m_curve.length(currentT, m_endT);)
+			{
+				currentT = binarySearchStep(currentT, currentT, m_endT);
+			}
+		}
+		else
+		{
+			for (; interval + permissibleError < m_curve.length(m_endT, currentT);)
+			{
+				//currentT = binarySearchStep(currentT, m_endT, currentT);
+				currentT = binarySearchStep(currentT, currentT, m_endT);
+			}
 		}
 	}
 

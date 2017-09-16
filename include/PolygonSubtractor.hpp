@@ -1354,11 +1354,42 @@ public:
 					indicesInfo.first = routeIndices.size();
 					indicesInfo.second = routeIndices.front();
 
-					for (auto p : routeIndices)
+					auto& currentPolygon = resultPolygons.back();
+
+					/*
+					頂点のマージ
+					共有点については、zIndexを一つしか持っていない場合、CombineZIndexを通る時に、同一曲線上の点とみなされ点の位置に補正がかかるケースがある。
+					このため、連続した同じ位置の頂点はマージして二つのインデックスを持たせるようにする。
+					*/
+					ClipperLib::cInt zIndexTemp;
+					currentPolygon.push_back(m_nodes[routeIndices.front()].m_pos);
+					zIndexTemp = m_nodes[routeIndices.front()].m_pos.Z;
+
+					for (size_t pp = 1; pp < routeIndices.size(); ++pp)
 					{
-						resultPolygons.back().push_back(m_nodes[p].m_pos);
+						auto p = routeIndices[pp];
+						
+						auto& prevPos = currentPolygon.back();
+						const auto& newPos = m_nodes[p].m_pos;
+						
+						LOG_DEBUG(L"MakePolygon: NewIndex=", Vec3(newPos.X, newPos.Y, newPos.Z));
+
+						if (!IsSamePos(prevPos, newPos))
+						{
+							LOG_DEBUG(L"MakePolygon: AddVertex");
+							currentPolygon.push_back(newPos);
+							zIndexTemp = newPos.Z;
+						}
+						else if(zIndexTemp != newPos.Z)
+						{
+							LOG_DEBUG(L"MakePolygon: MergeIndex");
+							prevPos.Z = MergeIndex(zIndexTemp, newPos.Z);
+							zIndexTemp = newPos.Z;
+						}
 					}
 				}
+
+				
 			}
 		}
 
@@ -1777,7 +1808,16 @@ private:
 			//const auto candidates = getNextNodes(currentNode);
 			const auto candidates = IndexTree::Make(currentNode);
 			std::set<size_t> alreadyVisited;
+			/*
+			currentNodeは現在のノードで、動かないという事がないように追加する。
+			indices[indices.size() - 2]は現在の一つ前ののノードで、後戻りを禁止するために追加する。
+			*/
 			alreadyVisited.insert(currentNode);
+			if (2 <= indices.size())
+			{
+				alreadyVisited.insert(indices[indices.size() - 2]);
+			}
+
 			//const auto candidates = getNextNodes2(currentNode, indices.size() == 1 ? none : Optional<size_t>(indices[indices.size() - 1]), );
 			LOG(__FUNCTIONW__, L": ", __LINE__, L"indices.size(): ", indices.size(), L", currentNode: ", currentNode);
 			getNextNodes2(currentNode, indices.size() == 1 ? none : Optional<size_t>(indices[indices.size() - 1]), alreadyVisited, candidates);
@@ -1814,6 +1854,9 @@ private:
 
 				LOG(__FUNCTIONW__, L": ", __LINE__);
 
+				/*
+				現在地から遡って座標の異なる点を検索する（今進んでいる方向ベクトルを計算するため）。
+				*/
 				for (int i = 1; i < indices.size(); ++i)
 				{
 					const int prevIndex_ = indices[(2 * indices.size() - i) % indices.size()];
