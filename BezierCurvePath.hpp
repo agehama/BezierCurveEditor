@@ -9,6 +9,11 @@
 
 #include "include/clipper/clipper.hpp"
 
+int64 profilingTime1;
+int64 profilingTime2;
+int64 profilingTime3;
+int64 profilingTime4;
+
 //#define DEBUG_OUTPUT_IMAGE
 
 std::vector<std::vector<Vec2>> debugPoss;
@@ -916,12 +921,12 @@ public:
 	{
 		if (const auto pTree = pTreeWeak.lock())
 		{
-			LOG(L"Before Insertion Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
+			LOG_DEBUG(L"Before Insertion Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
 
 			m_loops.insert(m_loops.begin() + loopIndex, pTree->m_loops.begin(), pTree->m_loops.end());
 			m_lines.insert(m_lines.begin() + loopIndex, pTree->m_lines.begin(), pTree->m_lines.end());
 			
-			LOG(L"After Insertion Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
+			LOG_DEBUG(L"After Insertion Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
 		}
 	}
 
@@ -931,8 +936,13 @@ public:
 		m_loopHoles.erase(m_loopHoles.begin() + holeIndex);
 	}
 
+	/*
+	全体(getLoopPath + getHolePath): 16ms
+	*/
 	ClipperLib::Path getLoopPath(size_t loopIndex, size_t& zIndex, double interval, double permissibleError = 1.0)const
 	{
+		StopwatchMicrosec watch(true);
+
 		const auto& loopCurve = getLoopCurve(loopIndex);
 
 		ClipperLib::Path result;
@@ -940,11 +950,13 @@ public:
 		for (int segment = 0; segment < loopCurve.size(); ++segment)
 		{
 			const auto range = loopCurve[segment].first.range();
-			LOG(L"output path: ", range.first, L" -> ", range.second);
+			LOG_DEBUG(L"output path: ", range.first, L" -> ", range.second);
 			loopCurve[segment].first.getSpecificPathHighPrecision(result, zIndex + segment, interval, permissibleError);
 		}
 
 		zIndex += loopCurve.size();
+
+		//profilingTime += watch.us();
 
 		return result;
 	}
@@ -998,6 +1010,8 @@ public:
 
 	ClipperLib::Path getHolePath(size_t holeIndex, size_t& zIndex, double interval, double permissibleError = 1.0)const
 	{
+		StopwatchMicrosec watch(true);
+
 		const auto& holeCurve = getHoleCurve(holeIndex);
 
 		ClipperLib::Path result;
@@ -1009,6 +1023,8 @@ public:
 
 		zIndex += holeCurve.size();
 
+		//profilingTime += watch.us();
+
 		return result;
 	}
 
@@ -1016,7 +1032,7 @@ public:
 	{
 		if (const auto pTree = pTreeWeak.lock())
 		{
-			LOG(L"Before Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
+			LOG_DEBUG(L"Before Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
 
 			m_loops.insert(m_loops.end(), pTree->m_loops.begin(), pTree->m_loops.end());
 			m_loopHoles.insert(m_loopHoles.end(), pTree->m_loopHoles.begin(), pTree->m_loopHoles.end());
@@ -1026,7 +1042,7 @@ public:
 			m_lineColors.insert(m_lineColors.end(), pTree->m_lineColors.begin(), pTree->m_lineColors.end());
 			m_lineHoleColors.insert(m_lineHoleColors.end(), pTree->m_lineHoleColors.begin(), pTree->m_lineHoleColors.end());
 
-			LOG(L"After Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
+			LOG_DEBUG(L"After Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
 		}
 	}
 
@@ -1034,7 +1050,7 @@ public:
 	{
 		if (const auto pTree = pTreeWeak.lock())
 		{
-			LOG(L"Before Insertion Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
+			LOG_DEBUG(L"Before Insertion Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
 
 			m_loops.insert(m_loops.begin() + pos, pTree->m_loops.begin(), pTree->m_loops.end());
 			m_loopHoles.insert(m_loopHoles.begin() + pos, pTree->m_loopHoles.begin(), pTree->m_loopHoles.end());
@@ -1044,13 +1060,13 @@ public:
 			m_lineColors.insert(m_lineColors.begin() + pos, pTree->m_lineColors.begin(), pTree->m_lineColors.end());
 			m_lineHoleColors.insert(m_lineHoleColors.begin() + pos, pTree->m_lineHoleColors.begin(), pTree->m_lineHoleColors.end());
 
-			LOG(L"After Insertion Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
+			LOG_DEBUG(L"After Insertion Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
 		}
 	}
 
 	void logger(const String& tag)
 	{
-		LOG(tag, L" Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
+		LOG_DEBUG(tag, L" Holes: ", m_lineHoles.size(), L", ", m_loopHoles.size(), L", Loops: ", m_lines.size(), L", ", m_loops.size());
 	}
 
 	void dump(const String& filename, const String& filename2, const Size& imageSize = { 640,480 })
@@ -1058,7 +1074,7 @@ public:
 		Image image(imageSize, Palette::White);
 		Image image2(imageSize, Palette::White);
 
-		LOG(L"dump to \"", filename, L"\"");
+		LOG_DEBUG(L"dump to \"", filename, L"\"");
 		dumpImpl(image, image2);
 
 		//for (auto i : step(m_lines.size()))
@@ -1097,7 +1113,7 @@ public:
 	{
 		Image image(imageSize, Palette::White);
 
-		LOG(L"dump to \"", filename, L"\"");
+		LOG_DEBUG(L"dump to \"", filename, L"\"");
 		dumpImplHoles(image);
 
 		image.savePNG(filename);
@@ -1129,7 +1145,7 @@ private:
 		//LOG(L"L(", __LINE__, L"): ", m_loops.size());
 		//for (auto i : step(m_loops.size()))
 		//{
-		//	LOG(L"L(", __LINE__, L"): ", m_loops[i].size());
+		//	LOG_DEBUG(L"L(", __LINE__, L"): ", m_loops[i].size());
 		//	for (const auto& curveSegmentPair : m_loops[i])
 		//	{
 		//		const auto& curveSegment = curveSegmentPair.first;
@@ -1144,7 +1160,7 @@ private:
 
 		/*for (auto i : step(m_loops.size()))
 		{
-			LOG(L"L(", __LINE__, L"): ", m_loops[i].size());
+			LOG_DEBUG(L"L(", __LINE__, L"): ", m_loops[i].size());
 			for (const auto& curveSegmentPair : m_loops[i])
 			{
 				const auto& curveSegment = curveSegmentPair.first;
@@ -1454,6 +1470,17 @@ public:
 
 		if (Input::KeyEnter.clicked && 3 == m_paths.size())
 		{
+			LOG(L"======================================================");
+
+			profilingTime1 = 0;
+			profilingTime2 = 0;
+			profilingTime3 = 0;
+			profilingTime4 = 0;
+
+			StopwatchMicrosec watch(true);
+			//TimeProfiler profiler;
+			//profiler.begin(L"全体");
+
 			const double polygonizeInterval = 5.0;
 
 			{
@@ -1468,6 +1495,9 @@ public:
 				/*
 				pathを使ってブーリアン
 				*/
+
+				StopwatchMicrosec watch2(true);
+
 				ClipperLib::Clipper clipper;
 				clipper.ZFillFunction(ZFillFunc);
 
@@ -1476,14 +1506,31 @@ public:
 
 				//ClipperLib::PolyTree resultPolyTree;
 				ClipperLib::Paths resultPaths;
+
+				
+				//profiler.begin(L"clipper.Execute");
 				clipper.Execute(ClipperLib::ClipType::ctXor, resultPaths);
+				//profiler.end();
+				LOG(L"clipper.Execute: ", static_cast<double>(watch2.us()) / 1000.0, L"[ms]");
 				//clipper.Execute(ClipperLib::ClipType::ctDifference, resultPaths);
+
+				//profilingTime += watch2.us();
 
 				//drawCurves = makeResultPath(resultPaths);
 				//m_segmentInfos = makeResultPath(resultPaths);
 
 				//m_pTree = makeResult(resultPolyTree);
+				
+				StopwatchMicrosec watch3(true);
+				//profiler.begin(L"MakeResultPath");
+				/*
+				全体(MakeResultPath + PolygonSubtract2 + MakeResultPathWithoutDivision): 50ms / 180ms
+				*/
 				m_pTree = MakeResultPath(resultPaths, m_paths);
+				//profiler.end();
+				//profilingTime += watch3.us();
+				LOG(L"MakeResultPath: ", static_cast<double>(watch3.us()) / 1000.0, L"[ms]");
+
 				m_pTree->logger(L"After MakeResultPath");
 
 #ifdef DEBUG_OUTPUT_IMAGE
@@ -1577,16 +1624,21 @@ public:
 				}
 #endif
 
+				//profiler.begin(L"remove hole loop");
+				
 				Optional<size_t> leaveLaterIndex;
 
 				for (size_t holeIndex = 0; m_pTree->hasAnyHole(); ++holeIndex)
 				{
 					///loopのパスはクリップされるたびに変わる可能性があるので毎回ツリーからロードする
-					const Polygon polygonLoop(m_pTree->getLoopLines(loopIndex));
+					//const Polygon polygonLoop(m_pTree->getLoopLines(loopIndex));
 
 					SegmentsHolder loopSegmentsHolder;
 
+					StopwatchMicrosec watch4(true);
+
 					const auto loopSegments = m_pTree->getLoopCurve(loopIndex);
+
 					for (const auto& loopSegment : loopSegments)
 					{
 						loopSegmentsHolder.add(&loopSegment.first);
@@ -1600,6 +1652,8 @@ public:
 					auto pathLoop = m_pTree->getLoopPath(loopIndex, indexOffset, polygonizeInterval);
 					///
 
+					//profilingTime += watch4.us();
+
 					if (m_pTree->numOfHoles() <= holeIndex)
 					{
 						//後回しにしたホールがあればもどってくる
@@ -1610,7 +1664,10 @@ public:
 						//そうでなければこのループについては正常終了
 						else
 						{
-							LOG(L"穴の除去完了");
+							LOG_DEBUG(L"穴の除去完了");
+							//profiler.end(); 
+							LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
+							
 							break;
 						}
 					}
@@ -1620,22 +1677,24 @@ public:
 						if (leaveLaterIndex.value() == holeIndex)
 						{
 							LOG_ERROR(L"L(", __LINE__, L"): 穴の除去に失敗");
+							//profiler.end(); 
+							LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
 							break;
 						}
 					}
 
 					auto holeVertices = m_pTree->getHoleLines(holeIndex);
-					LOG(L"hole is ClockWise? : ", static_cast<int>(IsClockWise(holeVertices)));
+					LOG_DEBUG(L"hole is ClockWise? : ", static_cast<int>(IsClockWise(holeVertices)));
 					std::reverse(holeVertices.begin(), holeVertices.end());
-					const Polygon polygonHole(holeVertices);
+					//const Polygon polygonHole(holeVertices);
 
 					//1回のクリップ毎に、インデックスは振りなおす
 					size_t currentIndexOffset = indexOffset;
 					auto pathHole = m_pTree->getHolePath(holeIndex, currentIndexOffset, polygonizeInterval);
 
-					LOG(L"<A");
+					LOG_DEBUG(L"<A");
 					const auto relation = CalcRetation(pathLoop, pathHole);
-					LOG(L"B>");
+					LOG_DEBUG(L"B>");
 
 #ifdef DEBUG_OUTPUT_IMAGE
 					CheckIntersection(Format(L"path_check_", checkCount++, L".png"), pathLoop, pathHole);
@@ -1644,17 +1703,17 @@ public:
 					//内側に接する場合のみ実際にクリッピングを行う
 					if(relation == ClippingRelation::AdjacentInner)
 					{
-						LOG(L"穴の除去, Hole: ", m_pTree->numOfHoles(), L", Loop: ", m_pTree->numOfLoops());
+						LOG_DEBUG(L"穴の除去, Hole: ", m_pTree->numOfHoles(), L", Loop: ", m_pTree->numOfLoops());
 
 						SegmentsHolder holeSegmentsHolder;
 
-						LOG(__FUNCTIONW__, L": ", __LINE__);
+						LOG_DEBUG(__FUNCTIONW__, L": ", __LINE__);
 						const auto holeSegments = m_pTree->getHoleCurve(holeIndex);
 						for (const auto& holeSegment : holeSegments)
 						{
 							holeSegmentsHolder.add(&holeSegment.first);
 						}
-						LOG(__FUNCTIONW__, L": ", __LINE__);
+						LOG_DEBUG(__FUNCTIONW__, L": ", __LINE__);
 
 						//auto results = PolygonSubtract(pathLoop, pathHole, currentIndexOffset);
 						//if (results.second)
@@ -1663,7 +1722,7 @@ public:
 						//	LOG_ERROR(L"L(", __LINE__, L"): 包含するケースでクリッピングが発生");
 
 						//	const auto& additionalSegments = results.second.value().additionalSegments;
-						//	LOG(L"additionalSegments: ", additionalSegments.size());
+						//	LOG_DEBUG(L"additionalSegments: ", additionalSegments.size());
 
 						//	for (const auto& segment : additionalSegments)
 						//	{
@@ -1677,20 +1736,35 @@ public:
 						TestSave(pathLoop, pathHole, Format(L"process_", processCount, L".png"));
 #endif
 
-						LOG(__FUNCTIONW__, L": ", __LINE__);
+						LOG_DEBUG(__FUNCTIONW__, L": ", __LINE__);
+						StopwatchMicrosec watch5(true);
+						//profiler.begin(L"PolygonSubtract2");
+						/*
+						全体(PolygonSubtract2): 35.885ms
+						*/
 						auto results = PolygonSubtract2(pathLoop, pathHole);
+						//profilingTime3 += watch5.us();
+						//profiler.end();
+						LOG(L"PolygonSubtract2: ", static_cast<double>(watch5.us()) / 1000.0, L"[ms]");
 						
-						LOG(__FUNCTIONW__, L": ", __LINE__);
+						LOG_DEBUG(__FUNCTIONW__, L": ", __LINE__);
 
 						//std::shared_ptr<LineStringTree> pTree2 = MakeResultPathWithoutDivision(results.first, std::vector<SegmentsHolder>({ holeSegmentsHolder, loopSegmentsHolder }));
 						//std::shared_ptr<LineStringTree> pTree2 = MakeResultPathWithoutDivision(results.first, std::vector<SegmentsHolder>({ loopSegmentsHolder, holeSegmentsHolder }));
+
+						StopwatchMicrosec watch6(true);
+						//profiler.begin(L"MakeResultPathWithoutDivision");
 						std::shared_ptr<LineStringTree> pTree2 = MakeResultPathWithoutDivision(results, std::vector<SegmentsHolder>({ loopSegmentsHolder, holeSegmentsHolder }));
-						
-						LOG(__FUNCTIONW__, L": ", __LINE__);
+						//profiler.end();
+						//profilingTime += watch6.us();
+						LOG(L"MakeResultPathWithoutDivision: ", static_cast<double>(watch6.us()) / 1000.0, L"[ms]");
+
+
+						LOG_DEBUG(__FUNCTIONW__, L": ", __LINE__);
 
 #ifdef DEBUG_OUTPUT_IMAGE
 						pTree2->dump(Format(L"dump_process_", processCount, L"_loops.png"), Format(L"dump_process_", processCount, L"_curves.png"));
-						LOG(L"dump complete");
+						LOG_DEBUG(L"dump complete");
 						
 						TestSave(results, Format(L"process_", processCount, L"_result.png"));
 #endif
@@ -1703,6 +1777,8 @@ public:
 						if (pTree2->hasAnyHole())
 						{
 							LOG_ERROR(L"L(", __LINE__, L"): 穴の除去に失敗");
+							//profiler.end(); 
+							LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
 							return;
 						}
 						else
@@ -1711,15 +1787,15 @@ public:
 
 							if (pTree2->numOfLoops() == 1)
 							{
-								const Polygon newPolygonLoop(pTree2->getLoopLines(0));
-								LOG_ERROR(L"Before erode area: ", polygonLoop.area(), L", After erode area: ", newPolygonLoop.area());
+								//const Polygon newPolygonLoop(pTree2->getLoopLines(0));
+								//LOG_DEBUG(L"Before erode area: ", polygonLoop.area(), L", After erode area: ", newPolygonLoop.area());
 								//m_pTree->append(pTree2);
 								//m_pTree->insert(pTree2, loopIndex);
 								m_pTree->insertLoop(loopIndex, pTree2);
 							}
 							else
 							{
-								LOG_ERROR(L"Loop was divided to ", pTree2->numOfLoops(), L" new loops");
+								LOG_DEBUG(L"Loop was divided to ", pTree2->numOfLoops(), L" new loops");
 								//m_pTree->append(pTree2);
 								//m_pTree->insert(pTree2, loopIndex);
 								m_pTree->insertLoop(loopIndex, pTree2);
@@ -1730,7 +1806,7 @@ public:
 
 						//クリッピングの適用により接するようになったかもしれない
 						leaveLaterIndex = none;
-
+						
 						/*loopSegmentsHolder.read(debugSegments);
 						holeSegmentsHolder.read(debugSegments);*/
 
@@ -1748,6 +1824,8 @@ public:
 					else if (relation == ClippingRelation::Unknown)
 					{
 						LOG_ERROR(L"polygon relation was unknown");
+						//profiler.end(); 
+						LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
 						return;
 					}
 					//無視できるケース（外側に接する or 完全に外側）
@@ -1757,14 +1835,29 @@ public:
 					//	//++loopIndex;
 					//	//continue;
 					//}
+
+					LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
 				}
 
 				//m_pTree->eraseHole(0);
+
+				//profiler.end();
 			}
 
 #ifdef DEBUG_OUTPUT_IMAGE
 			m_pTree->dump(L"result_loops.png", L"result_curves.png");
 #endif
+
+			LOG(L"全体: ", static_cast<double>(watch.us()) / 1000.0, L"[ms]");
+			
+			LOG(L"profilingTime1: ", static_cast<double>(profilingTime1) / 1000.0, L"[ms]");
+			LOG(L"profilingTime2: ", static_cast<double>(profilingTime2) / 1000.0, L"[ms]");
+			LOG(L"profilingTime3: ", static_cast<double>(profilingTime3) / 1000.0, L"[ms]");
+			LOG(L"profilingTime4: ", static_cast<double>(profilingTime4) / 1000.0, L"[ms]");
+			LOG(L"全体（profilingTime）: ", static_cast<double>(profilingTime1 + profilingTime2 + profilingTime3 + profilingTime4) / 1000.0, L"[ms]");
+			
+			//profiler.end();
+			
 			m_pTree->dumpPoly(L"result_poly.png");
 			m_pTree->dumpHoles(L"result_holes.png");
 
@@ -1794,7 +1887,7 @@ public:
 
 					if (polygonHole.intersects(polygonLoop))
 					{
-						LOG(L"穴の除去, Hole: ", m_pTree->numOfHoles(), L", Loop: ", m_pTree->numOfLoops());
+						LOG_DEBUG(L"穴の除去, Hole: ", m_pTree->numOfHoles(), L", Loop: ", m_pTree->numOfLoops());
 
 						SegmentsHolder loopSegmentsHolder;
 
@@ -1812,7 +1905,7 @@ public:
 						if(results.second)
 						{
 							const auto& additionalSegments = results.second.value().additionalSegments;
-							LOG(L"additionalSegments: ", additionalSegments.size());
+							LOG_DEBUG(L"additionalSegments: ", additionalSegments.size());
 
 							for (const auto& segment : additionalSegments)
 							{
@@ -2110,9 +2203,14 @@ private:
 		return none;
 	}
 
+	/*
+	全体(profilingTime): 10ms
+	*/
 	template<class PathHolderType>
 	static int CombineZIndex(const ClipVertex& p1, ClipVertex& p2, const PathHolderType& originalPaths,bool debugFlag=false)
 	{
+		//StopwatchMicrosec watch(true);
+
 		const int lower1 = static_cast<int>(p1.m_Z & INT32_MAX);
 		const int upper1 = static_cast<int>(p1.m_Z >> 32);
 		const int lower2 = static_cast<int>(p2.m_Z & INT32_MAX);
@@ -2123,11 +2221,13 @@ private:
 		//連続している（普通のケース）
 		if (lower1 == lower2)
 		{
+			//profilingTime += watch.us();
 			return lower1;
 		}
 		//あり得る？
 		else if (upper1 != 0 && upper1 == upper2)
 		{
+			//profilingTime += watch.us();
 			LOG_ERROR(L"L(", __LINE__, L"): upper1 != 0 && upper1 == upper2");
 			return upper1;
 		}
@@ -2135,10 +2235,12 @@ private:
 		//このような場合は交点ではない方のインデックスを取ってくればよい
 		else if (upper1 == 0 && upper2 != 0)
 		{
+			//profilingTime += watch.us();
 			return lower1;
 		}
 		else if (upper2 == 0 && upper1 != 0)
 		{
+			//profilingTime += watch.us();
 			return lower2;
 		}
 		//次の曲線に繋がるケース
@@ -2169,10 +2271,10 @@ private:
 			//if (lower1 == 6 && lower2 == 7)
 			if(debugFlag)
 			{
-				LOG(L"================================");
-				LOG(L"Curve1: ", curve1.curve(0.0), L" -> ", curve1.curve(1.0));
-				LOG(L"case p1: ", p1.m_pos, L" then ", curve1T1);
-				LOG(L"case p2: ", p2.m_pos, L" then ", curve1T2);
+				LOG_DEBUG(L"================================");
+				LOG_DEBUG(L"Curve1: ", curve1.curve(0.0), L" -> ", curve1.curve(1.0));
+				LOG_DEBUG(L"case p1: ", p1.m_pos, L" then ", curve1T1);
+				LOG_DEBUG(L"case p2: ", p2.m_pos, L" then ", curve1T2);
 			}
 
 			if (curve1T1 && curve1T2)
@@ -2190,10 +2292,10 @@ private:
 			//if (lower1 == 6 && lower2 == 7)
 			if (debugFlag)
 			{
-				LOG(L"Curve2: ", curve2.curve(0.0), L" -> ", curve2.curve(1.0));
-				LOG(L"case p1: ", p1.m_pos, L" then ", curve2T1);
-				LOG(L"case p2: ", p2.m_pos, L" then ", curve2T2);
-				LOG(L"--------------------------------");
+				LOG_DEBUG(L"Curve2: ", curve2.curve(0.0), L" -> ", curve2.curve(1.0));
+				LOG_DEBUG(L"case p1: ", p1.m_pos, L" then ", curve2T1);
+				LOG_DEBUG(L"case p2: ", p2.m_pos, L" then ", curve2T2);
+				LOG_DEBUG(L"--------------------------------");
 			}
 
 			if (curve2T1 && curve2T2)
@@ -2219,10 +2321,11 @@ private:
 				*/
 				//const Vec2 moveTo = curve2Opt.value().get(curve2Opt.value().closestPoint(p1.m_pos));
 				const Vec2 moveTo = curve2Opt.value().curve().get(curve2Opt.value().curve().closestPoint(p1.m_pos));
-				LOG(L"Path point ", p2.m_pos, L" is moved to ", moveTo);
+				LOG_DEBUG(L"Path point ", p2.m_pos, L" is moved to ", moveTo);
 				p2.m_pos = moveTo;
 				p2.m_Z = lower2;
 
+				//profilingTime += watch.us();
 				return lower1;
 			}
 			if (curve1T2 && curve2T1)
@@ -2232,7 +2335,8 @@ private:
 			}
 		}
 
-		LOG(L"Path length lengthSq1 < lengthSq2 = ", lengthSq1 < lengthSq2);
+		//profilingTime += watch.us();
+		LOG_DEBUG(L"Path length lengthSq1 < lengthSq2 = ", lengthSq1 < lengthSq2);
 		return lengthSq1 < lengthSq2 ? lower2 : lower1;
 	}
 	
@@ -2260,8 +2364,11 @@ private:
 	{
 		std::shared_ptr<LineStringTree> pTree = std::make_shared<LineStringTree>();
 
+		StopwatchMicrosec wholeWatch(true);
+
 		for (const auto& contour : resultPaths)
 		{
+			StopwatchMicrosec watch5(true);
 			const auto loops = PathToPolygons(contour);
 
 			std::vector<char> isHoles;
@@ -2320,6 +2427,10 @@ private:
 					++count;
 				}
 			}
+			
+			LOG(L"____path to polygons: ", static_cast<double>(watch5.us()) / 1000.0, L"[ms]");
+
+			StopwatchMicrosec watch4(true);
 
 			using Curves = std::vector<ClipVertex>;
 			std::vector<Curves> loopCurves;
@@ -2387,13 +2498,16 @@ private:
 				}
 			}
 
+			LOG(L"____loop loopCurves: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
+
 			int imageSaveCount = 0;
 
+			StopwatchMicrosec watch3(true);
 			for (const auto& segmentStarts : uniqueSegmentStartss)
 			{
 				pTree->nextLoop(isHoles[loopCount]);
 
-				Image image(640, 480, Palette::White);
+				//Image image(640, 480, Palette::White);
 
 				std::vector<Vec2> debugLoop;
 
@@ -2409,7 +2523,7 @@ private:
 
 					debugLoop.push_back(startPos);
 
-					//LOG_DEBUG(L"    Pos:", startPos, L", index: ", zIndex);
+					//LOG_DEBUG(L"____Pos:", startPos, L", index: ", zIndex);
 
 					if (const auto indicesOpt = UnpackZIndex(zIndex, originalPaths))
 					{
@@ -2420,12 +2534,12 @@ private:
 						const double startT = curve.closestPoint(startPos);
 						const double endT = curve.closestPoint(endPos);
 
-						//LOG_DEBUG(L"    Result1:", startPos, L" -> ", curve(startT));
-						//LOG_DEBUG(L"    Result2:", endPos, L" -> ", curve(endT));
+						//LOG_DEBUG(L"____Result1:", startPos, L" -> ", curve(startT));
+						//LOG_DEBUG(L"____Result2:", endPos, L" -> ", curve(endT));
 						
 						pTree->addSegment(isHoles[loopCount], CurveSegment(curve, startT, endT), Line(startPos, endPos));
 
-						curve.write(image, 30, RandomColor().setAlpha(128), startT, endT);
+						//curve.write(image, 30, RandomColor().setAlpha(128), startT, endT);
 					}
 				}
 
@@ -2437,8 +2551,12 @@ private:
 
 				++loopCount;
 			}
+			
+			LOG(L"____loop pTree->addSegment: ", static_cast<double>(watch3.us()) / 1000.0, L"[ms]");
 
+			StopwatchMicrosec watch2(true);
 			pTree->fixSegments();
+			LOG(L"____pTree->fixSegments: ", static_cast<double>(watch2.us()) / 1000.0, L"[ms]");
 
 			/*
 			for (auto& loopCurve : loopCurves)
@@ -2451,7 +2569,7 @@ private:
 
 				const auto color = RandomColor().setAlpha(64);
 
-				LOG(L"Curve: ");
+				LOG_DEBUG(L"Curve: ");
 				for (auto i : step(loopCurve.size()))
 				{
 					const int zIndex = CombineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()], originalPaths);
@@ -2459,7 +2577,7 @@ private:
 					const Vec2 startPos = loopCurve[i].m_pos;
 					const Vec2 endPos = loopCurve[(i + 1) % loopCurve.size()].m_pos;
 
-					LOG(L"    Pos:", startPos, L", index: ", zIndex);
+					LOG_DEBUG(L"____Pos:", startPos, L", index: ", zIndex);
 
 					debugLoop.push_back(startPos);
 
@@ -2552,7 +2670,7 @@ private:
 				std::vector<Vec2> debugLoop;
 				for (const auto& point : loop)
 				{
-					LOG(L"point: ", Vec4(point.m_pos, upper(point.m_Z), lower(point.m_Z)));
+					LOG_DEBUG(L"point: ", Vec4(point.m_pos, upper(point.m_Z), lower(point.m_Z)));
 
 					if (curves.empty() || curves.back().m_Z != point.m_Z)
 					{
@@ -2566,7 +2684,7 @@ private:
 
 			int loopCount = 0;
 
-			LOG(L"After Combine: ");
+			LOG_DEBUG(L"After Combine: ");
 			std::vector<std::vector<std::pair<int, Vec2>>> segmentStartss;
 			for (auto& loopCurve : loopCurves)
 			{
@@ -2587,7 +2705,7 @@ private:
 					debugLoop.push_back(startPos);
 					segmentStarts.emplace_back(zIndex, startPos);
 
-					LOG(L"    point: ", Vec3(startPos, zIndex));
+					LOG_DEBUG(L"____point: ", Vec3(startPos, zIndex));
 				}
 
 				//debugPoss.push_back(debugLoop);
@@ -2625,7 +2743,7 @@ private:
 			{
 				pTree->nextLoop(isHoles[loopCount]);
 
-				Image image(640, 480, Palette::White);
+				//Image image(640, 480, Palette::White);
 
 				std::vector<Vec2> debugLoop;
 
@@ -2641,7 +2759,7 @@ private:
 
 					debugLoop.push_back(startPos);
 
-					LOG_DEBUG(L"    Pos:", startPos, L", index: ", zIndex);
+					LOG_DEBUG(L"____Pos:", startPos, L", index: ", zIndex);
 
 					if (const auto indicesOpt = UnpackZIndex(zIndex, originalPaths))
 					{
@@ -2652,12 +2770,12 @@ private:
 						const double startT = curve.closestPoint(startPos);
 						const double endT = curve.closestPoint(endPos);
 
-						LOG_DEBUG(L"    Result1:", startPos, L" -> ", curve(startT));
-						LOG_DEBUG(L"    Result2:", endPos, L" -> ", curve(endT));
+						LOG_DEBUG(L"____Result1:", startPos, L" -> ", curve(startT));
+						LOG_DEBUG(L"____Result2:", endPos, L" -> ", curve(endT));
 
 						pTree->addSegment(isHoles[loopCount], CurveSegment(curve, startT, endT), Line(startPos, endPos));
 
-						curve.write(image, 30, RandomColor().setAlpha(128), startT, endT);
+						//curve.write(image, 30, RandomColor().setAlpha(128), startT, endT);
 					}
 				}
 
@@ -2683,7 +2801,7 @@ private:
 
 			const auto color = RandomColor().setAlpha(64);
 
-			LOG(L"Curve: ");
+			LOG_DEBUG(L"Curve: ");
 			for (auto i : step(loopCurve.size()))
 			{
 			const int zIndex = CombineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()], originalPaths);
@@ -2691,7 +2809,7 @@ private:
 			const Vec2 startPos = loopCurve[i].m_pos;
 			const Vec2 endPos = loopCurve[(i + 1) % loopCurve.size()].m_pos;
 
-			LOG(L"    Pos:", startPos, L", index: ", zIndex);
+			LOG_DEBUG(L"____Pos:", startPos, L", index: ", zIndex);
 
 			debugLoop.push_back(startPos);
 
@@ -3155,207 +3273,3 @@ private:
 
 	std::shared_ptr<LineStringTree> m_pTree;
 };
-
-	//int combineZIndex(const ClipVertex& p1, ClipVertex& p2)const
-	//{
-	//	const int lower1 = static_cast<int>(p1.m_Z& INT32_MAX);
-	//	const int upper1 = static_cast<int>(p1.m_Z >> 32);
-	//	const int lower2 = static_cast<int>(p2.m_Z& INT32_MAX);
-	//	const int upper2 = static_cast<int>(p2.m_Z >> 32);
-
-	//	/*if (static_cast<int>(p1.m_pos.x + 0.5) == 412 && static_cast<int>(p1.m_pos.y + 0.5) == 175 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 412 && static_cast<int>(p2.m_pos.y + 0.5) == 175 ||
-	//		static_cast<int>(p1.m_pos.x + 0.5) == 407 && static_cast<int>(p1.m_pos.y + 0.5) == 172 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 407 && static_cast<int>(p2.m_pos.y + 0.5) == 172
-	//		)*/
-	//	/*if (static_cast<int>(p1.m_pos.x + 0.5) == 289 && static_cast<int>(p1.m_pos.y + 0.5) == 472 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 290 && static_cast<int>(p2.m_pos.y + 0.5) == 471 ||
-	//		static_cast<int>(p1.m_pos.x + 0.5) == 307 && static_cast<int>(p1.m_pos.y + 0.5) == 428 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 309 && static_cast<int>(p2.m_pos.y + 0.5) == 422
-	//		)*/
-	//	/*if (static_cast<int>(p1.m_pos.x + 0.5) == 296 && static_cast<int>(p1.m_pos.y + 0.5) == 34 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 296 && static_cast<int>(p2.m_pos.y + 0.5) == 34 ||
-	//		static_cast<int>(p1.m_pos.x + 0.5) == 606 && static_cast<int>(p1.m_pos.y + 0.5) == 34 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 306 && static_cast<int>(p2.m_pos.y + 0.5) == 34 ||
-	//		static_cast<int>(p1.m_pos.x + 0.5) == 503 && static_cast<int>(p1.m_pos.y + 0.5) == 70 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 503 && static_cast<int>(p2.m_pos.y + 0.5) == 70
-	//		)
-	//	{
-	//		LOG(L"-------------------------");
-	//		LOG(L"Debug: P1=", p1.m_pos, L", lower=", lower1, L", upper=", upper1);
-	//		LOG(L"Debug: P2=", p2.m_pos, L", lower=", lower2, L", upper=", upper2);
-	//	}*/
-
-	//	if (static_cast<int>(p1.m_pos.x + 0.5) == 327 && static_cast<int>(p1.m_pos.y + 0.5) == 293 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 327 && static_cast<int>(p2.m_pos.y + 0.5) == 293 ||
-	//		static_cast<int>(p1.m_pos.x + 0.5) == 333 && static_cast<int>(p1.m_pos.y + 0.5) == 277 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 333 && static_cast<int>(p2.m_pos.y + 0.5) == 277 
-	//		)
-	//	{
-	//		LOG(L"-------------------------");
-	//		LOG(L"Debug: P1=", p1.m_pos, L", lower=", lower1, L", upper=", upper1);
-	//		LOG(L"Debug: P2=", p2.m_pos, L", lower=", lower2, L", upper=", upper2);
-	//	}
-
-	//	//連続している（普通のケース）
-	//	if (lower1 == lower2)
-	//	{
-	//		return lower1;
-	//	}
-	//	//このケースはあり得るか？
-	//	else if (upper1 != 0 && upper1 == upper2)
-	//	{
-	//		//LOG(L"NotExpectedData: P1=", p1.m_pos, L", lower=", lower1, L", upper=", upper1);
-	//		return upper1;
-	//	}
-	//	//片方のupperのみ存在する場合：片方の端点は交点なので二つインデックスが存在する。
-	//	//このような場合は交点ではない方のインデックスを取ってくればよい
-	//	else if (upper1 == 0 && upper2 != 0)
-	//	{
-	//		return lower1;
-	//	}
-	//	else if (upper2 == 0 && upper1 != 0)
-	//	{
-	//		return lower2;
-	//	}
-	//	//連続はしてないが、どちらの端点も交点ではない
-	//	//次の曲線に繋がるケース
-	//	//恐らく一つ目の曲線を採用すればよい
-	//	//LOG(L"NotExpectedData: P1=", p1.m_pos, L", lower=", lower1, L", upper=", upper1);
-	//	//LOG(L"NotExpectedData: P2=", p2.m_pos, L", lower=", lower2, L", upper=", upper2);
-	//	/*
-	//	[app]20 th line: (412,175), z1:26
-	//	[app]21 th line: (406.61509,172.05365), z1:25
-	//	[app]22 th line: (389.71378,164.17129), z1:107374182438
-	//	*/
-
-	//	/*
-	//	どっちかわからないときは、
-	//	・距離が小さければほぼ点なので無視してよい
-	//	・そうでないときは、二つのパス（最初に作った折れ線）に線分をそれぞれ射影して、長さの大きい方を取る
-	//	
-	//	折れ線への線分の射影
-	//	線分の始点と終点についてそれぞれ
-	//	1. 折れ線の全ての線へ下ろした垂線の足の位置を計算する
-	//	2. その位置が折れ線の中にあるような垂線について、最小の長さを持つ垂線の足の位置が射影先となる		
-	//	*/
-
-	//	/*const Line line(p1.m_pos, p2.m_pos);
-	//	const double lengthSq1 = projectionLengthSq(getSegmentPath(lower1), line);
-	//	const double lengthSq2 = projectionLengthSq(getSegmentPath(lower2), line);
-
-	//	if (static_cast<int>(p1.m_pos.x + 0.5) == 296 && static_cast<int>(p1.m_pos.y + 0.5) == 34 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 296 && static_cast<int>(p2.m_pos.y + 0.5) == 34 ||
-	//		static_cast<int>(p1.m_pos.x + 0.5) == 606 && static_cast<int>(p1.m_pos.y + 0.5) == 34 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 306 && static_cast<int>(p2.m_pos.y + 0.5) == 34 ||
-	//		static_cast<int>(p1.m_pos.x + 0.5) == 503 && static_cast<int>(p1.m_pos.y + 0.5) == 70 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 503 && static_cast<int>(p2.m_pos.y + 0.5) == 70
-	//		)
-	//	{
-	//		LOG(L"Debug: lengthSq1=", lengthSq1);
-	//		LOG(L"Debug: lengthSq2=", lengthSq2);
-	//	}
-
-	//	return lengthSq1 < lengthSq2 ? lower2 : lower1;*/
-
-	//	/*{
-	//		LOG(L"-------------------------");
-	//		LOG(L"Debug: P1=", p1.m_pos, L", lower=", lower1, L", upper=", upper1);
-	//		LOG(L"Debug: P2=", p2.m_pos, L", lower=", lower2, L", upper=", upper2);
-	//	}*/
-	//	
-	//	double lengthSq1 = 0, lengthSq2 = 0;
-
-	//	Optional<double> curve1T1, curve1T2, curve2T1, curve2T2;
-	//	Optional<BezierCurve> curve1Opt, curve2Opt;
-
-	//	if(curve1Opt = getSegmentCurve(lower1))
-	//	{
-	//		const auto& curve1 = curve1Opt.value();
-	//		curve1T1 = curve1.closestPointOpt(p1.m_pos, 0.1);
-	//		curve1T2 = curve1.closestPointOpt(p2.m_pos, 0.1);
-
-	//		if (curve1T1 && curve1T2)
-	//		{
-	//			lengthSq1 = Line(curve1(curve1T1.value()), curve1(curve1T2.value())).lengthSq();
-	//		}
-	//	}
-
-	//	if(curve2Opt = getSegmentCurve(lower2))
-	//	{
-	//		const auto& curve2 = curve2Opt.value();
-	//		curve2T1 = curve2.closestPointOpt(p1.m_pos, 0.1);
-	//		curve2T2 = curve2.closestPointOpt(p2.m_pos, 0.1);
-
-	//		if (curve2T1 && curve2T2)
-	//		{
-	//			lengthSq2 = Line(curve2(curve2T1.value()), curve2(curve2T2.value())).lengthSq();
-	//		}
-	//	}
-
-	//	/*if (static_cast<int>(p1.m_pos.x + 0.5) == 296 && static_cast<int>(p1.m_pos.y + 0.5) == 34 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 296 && static_cast<int>(p2.m_pos.y + 0.5) == 34 ||
-	//		static_cast<int>(p1.m_pos.x + 0.5) == 606 && static_cast<int>(p1.m_pos.y + 0.5) == 34 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 306 && static_cast<int>(p2.m_pos.y + 0.5) == 34 ||
-	//		static_cast<int>(p1.m_pos.x + 0.5) == 503 && static_cast<int>(p1.m_pos.y + 0.5) == 70 ||
-	//		static_cast<int>(p2.m_pos.x + 0.5) == 503 && static_cast<int>(p2.m_pos.y + 0.5) == 70
-	//		)*/if (static_cast<int>(p1.m_pos.x + 0.5) == 327 && static_cast<int>(p1.m_pos.y + 0.5) == 293 ||
-	//			static_cast<int>(p2.m_pos.x + 0.5) == 327 && static_cast<int>(p2.m_pos.y + 0.5) == 293 ||
-	//			static_cast<int>(p1.m_pos.x + 0.5) == 333 && static_cast<int>(p1.m_pos.y + 0.5) == 277 ||
-	//			static_cast<int>(p2.m_pos.x + 0.5) == 333 && static_cast<int>(p2.m_pos.y + 0.5) == 277
-	//			)
-	//	{
-	//		LOG(L"Debug: Curve1:t1=", curve1T1);
-	//		LOG(L"Debug: Curve1:t2=", curve1T2);
-	//		LOG(L"Debug: Curve2:t1=", curve2T1);
-	//		LOG(L"Debug: Curve2:t2=", curve2T2);
-
-	//		LOG(L"Debug: lengthSq1=", lengthSq1);
-	//		LOG(L"Debug: lengthSq2=", lengthSq2);
-	//	}
-
-	//	//p1とp2の間に連続している曲線の境界点が存在する場合、分割点を移動する必要がある
-	//	if (lengthSq1 == 0 && lengthSq2 == 0)
-	//	{
-	//		if (curve1T1 && curve2T2)
-	//		{
-	//			/*
-	//			//この二点が同じ点を指すはず
-	//			curve1T2 = curve1Opt.value().closestPoint(p2.m_pos);
-	//			curve2T1 = curve2Opt.value().closestPoint(p1.m_pos);
-	//			*/
-	//			const Vec2 moveTo = curve2Opt.value().get(curve2Opt.value().closestPoint(p1.m_pos));
-	//			LOG(L"Path point ", p2.m_pos, L" is moved to ", moveTo);
-	//			p2.m_pos = moveTo;
-	//			p2.m_Z = lower2;
-
-	//			return lower1;
-	//		}
-	//		if (curve1T2 && curve2T1)
-	//		{
-	//			//あり得る？
-	//			LOG_ERROR(L"curve1T2 && curve2T1");
-	//		}
-	//	}
-	//	
-	//	return lengthSq1 < lengthSq2 ? lower2 : lower1;
-	//}
-
-	/*std::pair<size_t, size_t> unpackZIndex(ClipperLib::cInt Z)const
-	{
-		const int indexLower = Z & INT32_MAX;
-
-		int indexOffset = 1;
-
-		for (int path = 0; path < m_paths.size(); ++path)
-		{
-			int nextIndexOffset = indexOffset + static_cast<int>(m_paths[path].numOfSegments());
-			if (indexLower < nextIndexOffset)
-			{
-				return{ static_cast<size_t>(path),static_cast<size_t>(indexLower - indexOffset) };
-			}
-			indexOffset = nextIndexOffset;
-		}
-
-		return{ 0,0 };
-	}*/

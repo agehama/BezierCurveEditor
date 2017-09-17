@@ -3,6 +3,9 @@
 #include "clipper/clipper.hpp"
 #include "CurveSegment.hpp"
 
+extern int64 profilingTime3;
+extern int64 profilingTime4;
+
 enum ClippingRelation {
 	AdjacentInner, AdjacentOuter, Contain, Distant, Unknown
 };
@@ -437,11 +440,16 @@ public:
 
 		++passCount;*/
 
+
+		StopwatchMicrosec watch3(true);
 		const Polygon subjectPoly = ToPoly(poly1);
 		const Polygon clipPoly = ToPoly(poly2);
+		profilingTime3 += watch3.us();
+
+		StopwatchMicrosec watch4(true);
 
 		std::vector<size_t> removeIndices;
-		LOG(__FUNCTIONW__, L": ", __LINE__);
+		TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 
 		//ノードの初期化
 		{
@@ -465,7 +473,7 @@ public:
 				m_nodes.push_back({ poly2[i], False() });
 			}
 		}
-		LOG(__FUNCTIONW__, L": ", __LINE__);
+		TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 
 		//隣接行列の初期化
 		{
@@ -1278,12 +1286,12 @@ public:
 
 		m_adjacencyMatrix = transposed();
 
-		LOG(__FUNCTIONW__, L": ", __LINE__);
+		TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 #ifdef OUTPUT_LOG
 		debugPrint();
 #endif
 
-		LOG(__FUNCTIONW__, L": ", __LINE__);
+		TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 		//連続した有効要素を見つける
 		{
 			for (auto i : step(loopPoints1.size()))
@@ -1303,7 +1311,7 @@ public:
 			}
 		}
 
-		LOG(__FUNCTIONW__, L": ", __LINE__);
+		TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 
 		TEST_LOG(L"EndPoints Size: ", endPoints.size());
 
@@ -1372,17 +1380,17 @@ public:
 						auto& prevPos = currentPolygon.back();
 						const auto& newPos = m_nodes[p].m_pos;
 						
-						LOG_DEBUG(L"MakePolygon: NewIndex=", Vec3(newPos.X, newPos.Y, newPos.Z));
+						TEST_LOG(L"MakePolygon: NewIndex=", Vec3(newPos.X, newPos.Y, newPos.Z));
 
 						if (!IsSamePos(prevPos, newPos))
 						{
-							LOG_DEBUG(L"MakePolygon: AddVertex");
+							TEST_LOG(L"MakePolygon: AddVertex");
 							currentPolygon.push_back(newPos);
 							zIndexTemp = newPos.Z;
 						}
 						else if(zIndexTemp != newPos.Z)
 						{
-							LOG_DEBUG(L"MakePolygon: MergeIndex");
+							TEST_LOG(L"MakePolygon: MergeIndex");
 							prevPos.Z = MergeIndex(zIndexTemp, newPos.Z);
 							zIndexTemp = newPos.Z;
 						}
@@ -1393,7 +1401,7 @@ public:
 			}
 		}
 
-		LOG(__FUNCTIONW__, L": ", __LINE__);
+		TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 
 		{
 			for (const auto& p : m_nodes)
@@ -1402,7 +1410,9 @@ public:
 			}
 		}
 
-		LOG(__FUNCTIONW__, L": ", __LINE__);
+		profilingTime4 += watch4.us();
+
+		TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 
 		return resultPolygons;
 	}
@@ -1754,7 +1764,7 @@ private:
 		{
 			currentNode = IndexTree::Make(index);
 		}*/
-		LOG(__FUNCTIONW__, L": ", __LINE__);
+		TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 
 		//std::vector<std::pair<size_t, Optional<size_t>>> results;
 
@@ -1766,7 +1776,7 @@ private:
 				auto nextNode = currentNode->addChild(i);
 				alreadyVisited.insert(i);
 
-				LOG(__FUNCTIONW__, L": ", __LINE__, L", addNode: ", i, L"pos: ", Vec3(m_nodes[i].m_pos.X, m_nodes[i].m_pos.Y, m_nodes[i].m_pos.Z));
+				TEST_LOG(__FUNCTIONW__, L": ", __LINE__, L", addNode: ", i, L"pos: ", Vec3(m_nodes[i].m_pos.X, m_nodes[i].m_pos.Y, m_nodes[i].m_pos.Z));
 
 				//違う点になるまで先読みする
 				if (IsSamePos(m_nodes[i].m_pos, m_nodes[index].m_pos))
@@ -1781,7 +1791,7 @@ private:
 			}
 		}
 
-		LOG(__FUNCTIONW__, L": ", __LINE__);
+		TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 
 		//return results;
 		//return currentNode;
@@ -1793,7 +1803,7 @@ private:
 		std::vector<size_t> indices;
 		indices.push_back(startNode);
 
-		LOG(__FUNCTIONW__, L": ", __LINE__);
+		TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 
 		while (true)
 		{
@@ -1803,7 +1813,7 @@ private:
 				return indices;
 			}
 
-			LOG(__FUNCTIONW__, L": ", __LINE__);
+			TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 
 			//const auto candidates = getNextNodes(currentNode);
 			const auto candidates = IndexTree::Make(currentNode);
@@ -1819,22 +1829,22 @@ private:
 			}
 
 			//const auto candidates = getNextNodes2(currentNode, indices.size() == 1 ? none : Optional<size_t>(indices[indices.size() - 1]), );
-			LOG(__FUNCTIONW__, L": ", __LINE__, L"indices.size(): ", indices.size(), L", currentNode: ", currentNode);
+			TEST_LOG(__FUNCTIONW__, L": ", __LINE__, L"indices.size(): ", indices.size(), L", currentNode: ", currentNode);
 			getNextNodes2(currentNode, indices.size() == 1 ? none : Optional<size_t>(indices[indices.size() - 1]), alreadyVisited, candidates);
 
-			LOG(__FUNCTIONW__, L": ", __LINE__);
+			TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 
 			//if (candidates.empty())
 			if (!candidates->hasChilds())
 			{
-				LOG(__FUNCTIONW__, L": ", __LINE__);
+				TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 				LOG_ERROR(L"Error: search stucked");
 				return{};
 			}
 			//else if (candidates.size() == 1)
 			else if (candidates->childsSize() == 1)
 			{
-				LOG(__FUNCTIONW__, L": ", __LINE__);
+				TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 				//candidates->leafs();
 				//indices.push_back(candidates.front().first);
 				//indices.push_back(candidates->m_childs.front()->m_node);
@@ -1842,7 +1852,7 @@ private:
 			}
 			else
 			{
-				LOG(__FUNCTIONW__, L": ", __LINE__);
+				TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 				//TEST_LOG(L"prev Index: ", indices[indices.size() - 1]);
 				//TEST_LOG(L"current Index: ", indices.back());
 				
@@ -1852,7 +1862,7 @@ private:
 				Vec2 prevPos;
 				int prevIndex;
 
-				LOG(__FUNCTIONW__, L": ", __LINE__);
+				TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 
 				/*
 				現在地から遡って座標の異なる点を検索する（今進んでいる方向ベクトルを計算するため）。
@@ -1869,7 +1879,7 @@ private:
 					}
 				}
 
-				LOG(__FUNCTIONW__, L": ", __LINE__);
+				TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 				
 				//TEST_LOG(__LINE__, L", prevPos: ", prevPos);
 				//TEST_LOG(__LINE__, L", currentPos : ", Vec3(currentPoint.X, currentPoint.Y, currentPoint.Z));
@@ -1884,7 +1894,7 @@ private:
 
 				current_poss.push_back(currentPos);
 
-				LOG(__FUNCTIONW__, L": ", __LINE__);
+				TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 
 				using CandidateType = std::pair<size_t, Optional<size_t>>;
 
@@ -1917,7 +1927,7 @@ private:
 					return angle(candidateA.first) > angle(candidateB.first);
 				});
 
-				LOG(__FUNCTIONW__, L": ", __LINE__);
+				TEST_LOG(__FUNCTIONW__, L": ", __LINE__);
 
 				//assert(minAngleIt != candidates.end());
 				assert(minAngleIt != nextIndices.end());
@@ -2175,7 +2185,7 @@ inline ClippingRelation CalcRetation(const ClipperLib::Path & polygonA, const Cl
 	{
 		//return IsInner(polygonA, sharedDistant.second.value()) ? ClippingRelation::AdjacentInner : ClippingRelation::AdjacentOuter;
 		const auto centroid = compute2DPolygonCentroid(polygonB);
-		LOG(L"centroid: ", ClipVertex(centroid).m_pos);
+		TEST_LOG(L"centroid: ", ClipVertex(centroid).m_pos);
 		return IsInner(polygonA, centroid) ? ClippingRelation::AdjacentInner : ClippingRelation::AdjacentOuter;
 	}
 	// Contain or Distant
@@ -2220,7 +2230,7 @@ inline std::pair<ClipperLib::Paths, Optional<AdditionalInfo>> PolygonSubtract(co
 
 	if (poly.contains(hole))
 	{
-		LOG(L"PolygonSubtract: 穴の追加");
+		TEST_LOG(L"PolygonSubtract: 穴の追加");
 
 		double rayLength = Window::Height();
 
@@ -2312,7 +2322,7 @@ inline std::pair<ClipperLib::Paths, Optional<AdditionalInfo>> PolygonSubtract(co
 	}
 	else
 	{
-		LOG(L"PolygonSubtract: グラフ探索");
+		TEST_LOG(L"PolygonSubtract: グラフ探索");
 		VerticesGraph graph;
 		return std::pair<ClipperLib::Paths, Optional<AdditionalInfo>>{ graph.setPolygons(polygonA, polygonB), none };
 	}
