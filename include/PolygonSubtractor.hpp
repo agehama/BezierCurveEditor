@@ -328,6 +328,152 @@ private:
 	std::vector<double> m_toSearchTotalCost;
 };
 
+
+//finding the centroid of a polygon
+//https://stackoverflow.com/questions/2792443/finding-the-centroid-of-a-polygon
+inline ClipperLib::IntPoint compute2DPolygonCentroid(const ClipperLib::Path & polygon)
+{
+	Vec2 centroid = { 0, 0 };
+	double signedArea = 0.0;
+	double x0 = 0.0; // Current vertex X
+	double y0 = 0.0; // Current vertex Y
+	double x1 = 0.0; // Next vertex X
+	double y1 = 0.0; // Next vertex Y
+	double a = 0.0;  // Partial signed area
+
+					 // For all vertices except last
+	int i = 0;
+	for (i = 0; i<polygon.size() - 1; ++i)
+	{
+		const auto p0 = ClipVertex(polygon[i]).m_pos;
+		const auto p1 = ClipVertex(polygon[i + 1]).m_pos;
+		x0 = p0.x;
+		y0 = p0.y;
+		x1 = p1.x;
+		y1 = p1.y;
+		a = x0*y1 - x1*y0;
+		signedArea += a;
+		centroid.x += (x0 + x1)*a;
+		centroid.y += (y0 + y1)*a;
+	}
+
+	// Do last vertex separately to avoid performing an expensive
+	// modulus operation in each iteration.
+	x0 = ClipVertex(polygon[i]).m_pos.x;
+	y0 = ClipVertex(polygon[i]).m_pos.y;
+	x1 = ClipVertex(polygon[0]).m_pos.x;
+	y1 = ClipVertex(polygon[0]).m_pos.y;
+	a = x0*y1 - x1*y0;
+	signedArea += a;
+	centroid.x += (x0 + x1)*a;
+	centroid.y += (y0 + y1)*a;
+
+	signedArea *= 0.5;
+	centroid.x /= (6.0*signedArea);
+	centroid.y /= (6.0*signedArea);
+
+	return ClipperLib::IntPoint(centroid.x*scaleInt, centroid.y*scaleInt, 0);
+	//return ClipperLib::IntPoint(centroid.x, centroid.y, 0);
+	//return centroid;
+}
+
+class BoundingRectIntPoint
+{
+public:
+
+	void add(const ClipperLib::IntPoint& v)
+	{
+		if (v.X < m_min_x)
+		{
+			m_min_x = v.X;
+		}
+		if (v.Y < m_min_y)
+		{
+			m_min_y = v.Y;
+		}
+		if (m_max_x < v.X)
+		{
+			m_max_x = v.X;
+		}
+		if (m_max_y < v.Y)
+		{
+			m_max_y = v.Y;
+		}
+	}
+
+	RectF get()const
+	{
+		return RectF(m_min_x, m_min_y, m_max_x - m_min_x, m_max_y - m_min_y);
+	}
+
+	/*
+	境界線上では交差していないという判定を厳密にしたいため、四則演算を使わずに衝突判定を行う
+	*/
+	bool intersects(const BoundingRectIntPoint& other)const
+	{
+		return Max(m_min_x, other.m_min_x) < Min(m_max_x, other.m_max_x)
+			&& Max(m_min_y, other.m_min_y) < Min(m_max_y, other.m_max_y);
+	}
+
+	bool includes(const ClipperLib::IntPoint& point)const
+	{
+		return m_min_x < point.X && point.X < m_max_x
+			&& m_min_y < point.Y && point.Y < m_max_y;
+	}
+
+	String toString()const
+	{
+		return Format(m_min_x, L", ", m_min_y, L",", m_max_x, L",", m_max_y);
+	}
+
+private:
+
+	ClipperLib::cInt m_min_x = INT64_MAX;
+	ClipperLib::cInt m_min_y = INT64_MAX;
+	ClipperLib::cInt m_max_x = INT64_MIN;
+	ClipperLib::cInt m_max_y = INT64_MIN;
+};
+
+/*
+線分 p0 -> p1 に対してpointが内側にいるか
+*/
+bool IsInner(const ClipperLib::IntPoint& p0, const ClipperLib::IntPoint& p1, const ClipperLib::IntPoint& point)
+{
+	const ClipperLib::cInt v1x = p1.X - p0.X;
+	const ClipperLib::cInt v1y = p1.Y - p0.Y;
+	const ClipperLib::cInt v2x = point.X - p0.X;
+	const ClipperLib::cInt v2y = point.Y - p0.Y;
+
+	//return 0 <= v1x*v2y - v1y*v2x;
+	return v1x*v2y - v1y*v2x < 0;
+}
+
+bool IsInner(const ClipperLib::Path & polygonA, const ClipperLib::IntPoint& distantPoint)
+{
+	BoundingRectIntPoint boundingRect;
+	for (const auto& p : polygonA)
+	{
+		boundingRect.add(p);
+	}
+	const auto rect = boundingRect.get();
+
+	const double rayLength = rect.w + rect.h;
+	const Vec2 startPos = ClipVertex(distantPoint).m_pos;
+	const Line ray(startPos, startPos + Vec2(0, 1)*rayLength);
+
+	int intersectionCount = 0;
+	for (size_t i = 0; i < polygonA.size(); ++i)
+	{
+		const Line currentLine(ClipVertex(polygonA[i]).m_pos, ClipVertex(polygonA[(i + 1) % polygonA.size()]).m_pos);
+		if (currentLine.intersects(ray))
+		{
+			++intersectionCount;
+		}
+	}
+
+	return intersectionCount % 2 == 1;
+}
+
 class VerticesGraph
 {
 public:
@@ -442,8 +588,8 @@ public:
 
 
 		StopwatchMicrosec watch3(true);
-		const Polygon subjectPoly = ToPoly(poly1);
-		const Polygon clipPoly = ToPoly(poly2);
+		//const Polygon subjectPoly = ToPoly(poly1);
+		//const Polygon clipPoly = ToPoly(poly2);
 		profilingTime3 += watch3.us();
 
 		StopwatchMicrosec watch4(true);
@@ -455,8 +601,8 @@ public:
 		{
 			for (auto i : step(poly1.size()))
 			{
-				//m_nodes.push_back({ poly1[i], clipPoly.contains(poly1[i]) ? False() : True() });
-				if (clipPoly.contains(ToVec2(poly1[i])) || Includes(poly2, poly1[i]))
+				//if (clipPoly.contains(ToVec2(poly1[i])) || Includes(poly2, poly1[i]))
+				if(IsInner(poly2, poly1[i]) || Includes(poly2, poly1[i]))
 				{
 					m_nodes.push_back({ poly1[i], False() });
 					removeIndices.push_back(i);
@@ -493,190 +639,6 @@ public:
 				addBidirectionalLink(offset + i, offset + (i + 1) % poly2.size());
 			}
 		}
-
-		//debugPrint();
-
-		/*
-		中点挿入により解決する方法
-		共有点がある場合にうまく動かない
-		*/
-		/*
-		{
-		std::vector<std::vector<std::pair<ClipperLib::IntPoint, size_t>>> intersectionListLines2(poly2.size());
-
-		size_t currentInsertPos = 1;
-		for (size_t p1 = 0; p1 < poly1.size(); ++p1)
-		{
-		const size_t l1Begin = p1;
-		const size_t l1End = (p1 + 1) % poly1.size();
-
-		const Line line1 = ToLine(poly1[l1Begin], poly1[l1End]);
-		std::vector<std::pair<ClipperLib::IntPoint, size_t>> intersectionList;
-
-		for (size_t p2 = 0; p2 < poly2.size(); ++p2)
-		{
-		auto& intersectionListLine2 = intersectionListLines2[p2];
-
-		const size_t l2Begin = p2;
-		const size_t l2End = (p2 + 1) % poly2.size();
-
-		const Line line2 = ToLine(poly2[l2Begin], poly2[l2End]);
-
-		if (auto crossPointOpt = line1.intersectsAt(line2))
-		{
-		//          l2.p0
-		//            |
-		//            v
-		// l1.p0 -> cross -> l1.p1
-		//            |
-		//            v
-		//          l2.p1
-
-		ClipperLib::IntPoint intersectionPos = ToIntPoint(crossPointOpt.value(), 0);
-		ZFillFunc(poly1[l1Begin], poly1[l1End], poly2[l2Begin], poly2[l2End], intersectionPos);
-
-		//交点は有効な頂点とする
-		const size_t crossPoint = addNode({ intersectionPos, True() });
-		TEST_LOG(L"detect cross point at: ", crossPointOpt.value());
-
-		intersectionList.emplace_back(intersectionPos, crossPoint);
-		intersectionListLine2.emplace_back(intersectionPos, crossPoint);
-
-		removeLink(l1Begin, l1End);
-
-		removeLink(poly1.size() + l2Begin, poly1.size() + l2End);
-		removeLink(poly1.size() + l2End, poly1.size() + l2Begin);
-		}
-		else if (IsSamePos(poly1[l1Begin], poly2[l2Begin]) && IsSamePos(poly1[l1End], poly2[l2End])
-		|| IsSamePos(poly1[l1Begin], poly2[l2End]) && IsSamePos(poly1[l1End], poly2[l2Begin]))
-		{
-		//完全に同一な線であれば、その上は行き来できないものとする
-
-		removeLink(l1Begin, l1End);
-		removeLink(poly1.size() + l2Begin, poly1.size() + l2End);
-		removeLink(poly1.size() + l2End, poly1.size() + l2Begin);
-		}
-		//1つの共有点を持つ場合は、リンクを追加する
-		// l1.p0 -> l1.p1(l2.p0)
-		//            |
-		//            v
-		//          l2.p1
-		else if (IsSamePos(poly1[l1Begin], poly2[l2Begin]))
-		{
-		addBidirectionalLink(l1Begin, poly1.size() + l2Begin);
-		}
-		else if (IsSamePos(poly1[l1Begin], poly2[l2End]))
-		{
-		addBidirectionalLink(l1Begin, poly1.size() + l2End);
-		}
-		else if (IsSamePos(poly1[l1End], poly2[l2Begin]))
-		{
-		addBidirectionalLink(l1End, poly1.size() + l2Begin);
-		}
-		else if (IsSamePos(poly1[l1End], poly2[l2End]))
-		{
-		addBidirectionalLink(l1End, poly1.size() + l2End);
-		}
-		}
-
-		if (!intersectionList.empty())
-		{
-		//line1に沿ってソート
-		std::sort(intersectionList.begin(), intersectionList.end(),
-		[&](const std::pair<ClipperLib::IntPoint, size_t>& a, const std::pair<ClipperLib::IntPoint, size_t>& b)
-		{
-		return line1.begin.distanceFromSq(ToVec2(a.first)) < line1.begin.distanceFromSq(ToVec2(b.first));
-		});
-
-		//交点は遮蔽されていないものとみなす
-		//この場合、隣接した交点の間が遮蔽されているにもかかわらず、パスがつながる可能性がある
-		//したがって、交点の間にもう一つ点を挿入する（この点が遮蔽されるかどうかで繋がるかどうかが決まる）
-
-		for (int i = 0; i + 1 < intersectionList.size(); i += 2)
-		{
-		const ClipperLib::IntPoint a = intersectionList[i].first;
-		const ClipperLib::IntPoint b = intersectionList[i + 1].first;
-		const ClipperLib::IntPoint m = MidPoint(a, b);
-
-		size_t midPointIndex;
-
-		if (clipPoly.contains(ToVec2(m)))
-		{
-		midPointIndex = addNode({ m, False() });
-		removeIndices.push_back(midPointIndex);
-		}
-		else
-		{
-		midPointIndex = addNode({ m, True() });
-		}
-
-		intersectionList.insert(intersectionList.begin() + i + 1, std::pair<ClipperLib::IntPoint, size_t>(m, midPointIndex));
-		}
-
-		//リンクの再貼り付け
-		addLink(l1Begin, intersectionList.front().second);
-		for (int i = 0; i + 1 < intersectionList.size(); ++i)
-		{
-		addLink(intersectionList[i].second, intersectionList[i + 1].second);
-		}
-		addLink(intersectionList.back().second, l1End);
-
-		//loop1の順路作り
-		std::vector<size_t> intersectionIndices(intersectionList.size());
-		for (auto i : step(intersectionList.size()))
-		{
-		intersectionIndices[i] = intersectionList[i].second;
-		}
-		loopPoints1.insert(loopPoints1.end(), intersectionIndices.begin(), intersectionIndices.end());
-		}
-
-		loopPoints1.push_back(l1End);
-		}
-
-		for (size_t p2 = 0; p2 < poly2.size(); ++p2)
-		{
-		auto& intersectionListLine2 = intersectionListLines2[p2];
-
-		const size_t l2Begin = p2;
-		const size_t l2End = (p2 + 1) % poly2.size();
-
-		const Line line2 = ToLine(poly2[l2Begin], poly2[l2End]);
-
-		if (!intersectionListLine2.empty())
-		{
-		//line2に沿ってソート
-		std::sort(intersectionListLine2.begin(), intersectionListLine2.end(),
-		[&](const std::pair<ClipperLib::IntPoint, size_t>& a, const std::pair<ClipperLib::IntPoint, size_t>& b)
-		{
-		return line2.begin.distanceFromSq(ToVec2(a.first)) < line2.begin.distanceFromSq(ToVec2(b.first));
-		});
-
-		//リンクの再貼り付け
-		addBidirectionalLink(poly1.size() + l2Begin, intersectionListLine2.front().second);
-		for (int i = 0; i + 1 < intersectionListLine2.size(); ++i)
-		{
-		addBidirectionalLink(intersectionListLine2[i].second, intersectionListLine2[i + 1].second);
-		}
-		addBidirectionalLink(intersectionListLine2.back().second, poly1.size() + l2End);
-		}
-		}
-
-		//不要な連結を削除
-		for (size_t p2 = 0; p2 < poly2.size(); ++p2)
-		{
-		if (!subjectPoly.contains(ToVec2(poly2[p2])))
-		{
-		const size_t removeIndex = poly1.size() + p2;
-		removeAllLinkByIndex(removeIndex);
-		}
-		}
-
-		for (auto removeIndex : removeIndices)
-		{
-		removeAllLinkByIndex(removeIndex);
-		}
-		}
-		*/
 
 		/*
 		エッジコピー＋連結削除により解決する方法
@@ -1106,167 +1068,6 @@ public:
 			一つは外側のインデックスとリンクを張り、もう一つは内側のインデックスとリンクを張るようにする。
 			そして、外側と内側の間についてのリンクを切り離し行き来できないようにする。
 			*/
-			if(false)
-			{
-				/*
-				TODO : solveよりも前に、連続した共有線の間を取り除き、始点と終点のみ残す
-				*/
-
-				std::set<size_t> processedNodes;
-
-				transitionLines.solve(m_nodes, loopPoints2, subjectPoly);
-
-				for (size_t line = 0; line < transitionLines.size(); ++line)
-				{
-					//TEST_LOG(__LINE__, L": for (size_t line = 0; line < transitionLines.size(); ++line)");
-					const auto beginOfLine = transitionLines.beginOfLine(line);
-					const auto endOfLine = transitionLines.endOfLine(line);
-
-					const size_t beginIndex = transitionLines.findBeginOfLoopPoints2(line, loopPoints2, poly1.size());
-					const size_t endIndex = transitionLines.findEndOfLoopPoints2(line, loopPoints2, poly1.size()) % loopPoints2.size();
-
-					TEST_LOG(__LINE__, L": about transitionLines[", line, L"]: P(", beginIndex, L")=", ClipVertex(m_nodes[loopPoints2[beginIndex]].m_pos).m_pos, L", P(", endIndex, L")=", ClipVertex(m_nodes[loopPoints2[endIndex]].m_pos).m_pos);
-
-					//beginとendが示すインデックスが同じ => TransitionLineが閉路である場合は、その間の線が内側の時のみリンクを削除する
-					//if (m_nodes[loopPoints2[beginIndex]].m_pos == m_nodes[loopPoints2[endIndex]].m_pos)
-					if (beginIndex == endIndex)
-					{
-						TEST_LOG(__LINE__, L": beginIndex == endIndex");
-						if (transitionLines.getType(line) == TransitionLineType::Inner)
-						{
-							TEST_LOG(__LINE__, L": transitionLines.getType(line) == TransitionLineType::Inner");
-							const size_t nodeIndexPoly1 = beginOfLine.poly1Index_1;
-							const size_t nodeIndexPoly2 = poly1.size() + beginOfLine.poly2Index;
-
-							const size_t nodesID = std::hash<size_t>()(nodeIndexPoly1) + std::hash<size_t>()(nodeIndexPoly2);
-
-							TEST_LOG(__LINE__, L": About node ", nodeIndexPoly1, L" and node ", nodeIndexPoly2, L" :");
-
-							if (processedNodes.count(nodesID) != 0)
-							{
-								TEST_LOG(__LINE__, L": Already processed skip ...");
-								continue;
-							}
-
-							processedNodes.insert(nodesID);
-
-							assert(nodeIndexPoly2 == loopPoints2[beginIndex]);
-
-							const size_t cloneIndexPoly1 = copyNodeWithoutLink(nodeIndexPoly1);
-							const size_t cloneIndexPoly2 = copyNodeWithoutLink(nodeIndexPoly2);
-
-							const size_t nextNodeIndexPoly1 = (nodeIndexPoly1 + 1) % poly1.size();
-
-							const size_t postFrontNodeIndexPoly2 = loopPoints2[beginIndex + 1];
-							const size_t prevBackNodeIndexPoly2 = loopPoints2[(beginIndex + loopPoints2.size() - 1) % loopPoints2.size()];
-
-							removeLink(prevBackNodeIndexPoly2, nodeIndexPoly2);
-							removeLink(nodeIndexPoly2, prevBackNodeIndexPoly2);
-							addBidirectionalLink(prevBackNodeIndexPoly2, cloneIndexPoly2);
-
-							removeLink(nodeIndexPoly1, nextNodeIndexPoly1);
-							removeLink(nextNodeIndexPoly1, nodeIndexPoly1);
-							addBidirectionalLink(cloneIndexPoly1, nextNodeIndexPoly1);
-
-							addBidirectionalLink(cloneIndexPoly1, cloneIndexPoly2);
-						}
-					}
-					else
-					{
-						TEST_LOG(__LINE__, L": beginIndex != endIndex");
-						if (transitionLines.getType(line) == TransitionLineType::Inner)
-						{
-							TEST_LOG(__LINE__, L": transitionLines.getType(line) == TransitionLineType::Inner");
-							std::vector<size_t> copyNodeListPoly2;
-							for (size_t subIndex = beginIndex; subIndex != endIndex; subIndex = (subIndex + 1) % loopPoints2.size())
-							{
-								copyNodeListPoly2.push_back(loopPoints2[subIndex]);
-							}
-							copyNodeListPoly2.push_back(loopPoints2[endIndex]);
-
-							/*
-							poly2 の部分線を取り出し、poly1 側に二つ複製を作る（線で区切られる内側用と外側用）
-							*/
-							std::array<size_t, 2> cloneLineBegins;
-							std::array<size_t, 2> cloneLineEnds;
-							for (size_t it = 0; it < 2; ++it)
-							{
-								std::vector<size_t> cloneIndices;
-								for (size_t nodeIndex = 0; nodeIndex < copyNodeListPoly2.size(); ++nodeIndex)
-								{
-									cloneIndices.push_back(copyNodeWithoutLink(copyNodeListPoly2[nodeIndex]));
-								}
-
-								for (size_t cloneIndex = 0; cloneIndex + 1 < cloneIndices.size(); ++cloneIndex)
-								{
-									addBidirectionalLink(cloneIndices[cloneIndex], cloneIndices[cloneIndex + 1]);
-								}
-
-								cloneLineBegins[it] = cloneIndices.front();
-								cloneLineEnds[it] = cloneIndices.back();
-							}
-
-							const size_t beginNodeIndexPoly1 = beginOfLine.poly1Index_1;
-							const size_t beginNodeIndexPoly2 = poly1.size() + beginOfLine.poly2Index;
-
-							const size_t endNodeIndexPoly1 = endOfLine.poly1Index_1;
-							const size_t endNodeIndexPoly2 = poly1.size() + endOfLine.poly2Index;
-
-							/*
-							poly1 に複製を作るので、poly1 と poly2 のリンクは解除しておく
-							*/
-							removeLink(beginNodeIndexPoly1, beginNodeIndexPoly2);
-							removeLink(beginNodeIndexPoly2, beginNodeIndexPoly1);
-							removeLink(endNodeIndexPoly1, endNodeIndexPoly2);
-							removeLink(endNodeIndexPoly2, endNodeIndexPoly1);
-							TEST_LOG(L"remove link between poly1 and poly2 (begin, end):", Point(beginNodeIndexPoly1, beginNodeIndexPoly2), L", ", Point(endNodeIndexPoly1, endNodeIndexPoly2));
-
-							const size_t prevBeginNodeIndexPoly1 = (beginNodeIndexPoly1 + poly1.size() - 1) % poly1.size();
-							const size_t postBeginNodeIndexPoly1 = (beginNodeIndexPoly1 + 1) % poly1.size();
-							const size_t prevEndNodeIndexPoly1 = (endNodeIndexPoly1 + poly1.size() - 1) % poly1.size();
-							const size_t postEndNodeIndexPoly1 = (endNodeIndexPoly1 + 1) % poly1.size();
-
-							/*
-							まず poly1 の TransitionPoint の前後でリンクを切る
-							*/
-							removeLink(prevBeginNodeIndexPoly1, beginNodeIndexPoly1);
-							removeLink(beginNodeIndexPoly1, postBeginNodeIndexPoly1);
-							removeLink(prevEndNodeIndexPoly1, endNodeIndexPoly1);
-							removeLink(endNodeIndexPoly1, postEndNodeIndexPoly1);
-							TEST_LOG(L"remove link in poly1 begin (prev, trans, post):", Vec3(prevBeginNodeIndexPoly1, beginNodeIndexPoly1, postBeginNodeIndexPoly1));
-							TEST_LOG(L"remove link in poly1 end (prev, trans, post):", Vec3(prevEndNodeIndexPoly1, endNodeIndexPoly1, postEndNodeIndexPoly1));
-
-							/*
-							左側を繋げる
-							*/
-							addBidirectionalLink(prevBeginNodeIndexPoly1, cloneLineBegins[0]);
-							addBidirectionalLink(cloneLineEnds[0], postEndNodeIndexPoly1);
-
-							TEST_LOG(L"add link poly1 and clone1 begin (prev, trans):", Point(prevBeginNodeIndexPoly1, cloneLineBegins[0]));
-							TEST_LOG(L"add link poly1 and clone1 end (trans, post):", Point(cloneLineEnds[0], postEndNodeIndexPoly1));
-
-							/*
-							右側を繋げる
-							*/
-							addBidirectionalLink(postBeginNodeIndexPoly1, cloneLineBegins[1]);
-							addBidirectionalLink(cloneLineEnds[1], prevEndNodeIndexPoly1);
-
-							TEST_LOG(L"add link poly1 and clone2 begin (prev, trans):", Point(postBeginNodeIndexPoly1, cloneLineBegins[1]));
-							TEST_LOG(L"add link poly1 and clone2 end (trans, post):", Point(cloneLineEnds[1], prevEndNodeIndexPoly1));
-						}
-					}
-					/*else
-					{
-					for (size_t it = beginIndex; it <= endIndex; ++it)
-					{
-					const size_t index = it % loopPoints2.size();
-					copyNodeWithoutLink(loopPoints2[index]);
-
-					}
-					}*/
-
-				}
-			}
 
 			//不要な連結を削除
 			/*for (size_t p2 = 0; p2 < poly2.size(); ++p2)
@@ -1965,68 +1766,6 @@ private:
 	Font m_debugFont = Font(12);
 };
 
-//finding the centroid of a polygon
-//https://stackoverflow.com/questions/2792443/finding-the-centroid-of-a-polygon
-inline ClipperLib::IntPoint compute2DPolygonCentroid(const ClipperLib::Path & polygon)
-{
-	Vec2 centroid = { 0, 0 };
-	double signedArea = 0.0;
-	double x0 = 0.0; // Current vertex X
-	double y0 = 0.0; // Current vertex Y
-	double x1 = 0.0; // Next vertex X
-	double y1 = 0.0; // Next vertex Y
-	double a = 0.0;  // Partial signed area
-
-					 // For all vertices except last
-	int i = 0;
-	for (i = 0; i<polygon.size() - 1; ++i)
-	{
-		const auto p0 = ClipVertex(polygon[i]).m_pos;
-		const auto p1 = ClipVertex(polygon[i + 1]).m_pos;
-		x0 = p0.x;
-		y0 = p0.y;
-		x1 = p1.x;
-		y1 = p1.y;
-		a = x0*y1 - x1*y0;
-		signedArea += a;
-		centroid.x += (x0 + x1)*a;
-		centroid.y += (y0 + y1)*a;
-	}
-
-	// Do last vertex separately to avoid performing an expensive
-	// modulus operation in each iteration.
-	x0 = ClipVertex(polygon[i]).m_pos.x;
-	y0 = ClipVertex(polygon[i]).m_pos.y;
-	x1 = ClipVertex(polygon[0]).m_pos.x;
-	y1 = ClipVertex(polygon[0]).m_pos.y;
-	a = x0*y1 - x1*y0;
-	signedArea += a;
-	centroid.x += (x0 + x1)*a;
-	centroid.y += (y0 + y1)*a;
-
-	signedArea *= 0.5;
-	centroid.x /= (6.0*signedArea);
-	centroid.y /= (6.0*signedArea);
-
-	return ClipperLib::IntPoint(centroid.x*scaleInt, centroid.y*scaleInt, 0);
-	//return ClipperLib::IntPoint(centroid.x, centroid.y, 0);
-	//return centroid;
-}
-
-/*
-線分 p0 -> p1 に対してpointが内側にいるか
-*/
-bool IsInner(const ClipperLib::IntPoint& p0, const ClipperLib::IntPoint& p1, const ClipperLib::IntPoint& point)
-{
-	const ClipperLib::cInt v1x = p1.X - p0.X;
-	const ClipperLib::cInt v1y = p1.Y - p0.Y;
-	const ClipperLib::cInt v2x = point.X - p0.X;
-	const ClipperLib::cInt v2y = point.Y - p0.Y;
-
-	//return 0 <= v1x*v2y - v1y*v2x;
-	return v1x*v2y - v1y*v2x < 0;
-}
-
 //bool IsInner(const ClipperLib::Path & polygonA, const ClipperLib::IntPoint& distantPoint)
 //{
 //	for (size_t i = 0; i < polygonA.size(); ++i)
@@ -2039,90 +1778,6 @@ bool IsInner(const ClipperLib::IntPoint& p0, const ClipperLib::IntPoint& p1, con
 //
 //	return true;
 //}
-
-class BoundingRectIntPoint
-{
-public:
-
-	void add(const ClipperLib::IntPoint& v)
-	{
-		if (v.X < m_min_x)
-		{
-			m_min_x = v.X;
-		}
-		if (v.Y < m_min_y)
-		{
-			m_min_y = v.Y;
-		}
-		if (m_max_x < v.X)
-		{
-			m_max_x = v.X;
-		}
-		if (m_max_y < v.Y)
-		{
-			m_max_y = v.Y;
-		}
-	}
-
-	RectF get()const
-	{
-		return RectF(m_min_x, m_min_y, m_max_x - m_min_x, m_max_y - m_min_y);
-	}
-
-	/*
-	境界線上では交差していないという判定を厳密にしたいため、四則演算を使わずに衝突判定を行う
-	*/
-	bool intersects(const BoundingRectIntPoint& other)const
-	{
-		return Max(m_min_x, other.m_min_x) < Min(m_max_x, other.m_max_x)
-			&& Max(m_min_y, other.m_min_y) < Min(m_max_y, other.m_max_y);
-	}
-
-	bool includes(const ClipperLib::IntPoint& point)const
-	{
-		return m_min_x < point.X && point.X < m_max_x
-			&& m_min_y < point.Y && point.Y < m_max_y;
-	}
-
-	String toString()const
-	{
-		return Format(m_min_x, L", ", m_min_y, L",", m_max_x, L",", m_max_y);
-	}
-
-private:
-
-	ClipperLib::cInt m_min_x = INT64_MAX;
-	ClipperLib::cInt m_min_y = INT64_MAX;
-	ClipperLib::cInt m_max_x = INT64_MIN;
-	ClipperLib::cInt m_max_y = INT64_MIN;
-};
-
-bool IsInner(const ClipperLib::Path & polygonA, const ClipperLib::IntPoint& distantPoint)
-{
-	BoundingRectIntPoint boundingRect;
-	for (const auto& p : polygonA)
-	{
-		boundingRect.add(p);
-	}
-	const auto rect = boundingRect.get();
-
-	const double rayLength = rect.w + rect.h;
-	const Vec2 startPos = ClipVertex(distantPoint).m_pos;
-	const Line ray(startPos, startPos + Vec2(0, 1)*rayLength);
-
-	int intersectionCount = 0;
-	for (size_t i = 0; i < polygonA.size(); ++i)
-	{
-		const Line currentLine(ClipVertex(polygonA[i]).m_pos, ClipVertex(polygonA[(i + 1) % polygonA.size()]).m_pos);
-		if (currentLine.intersects(ray))
-		{
-			++intersectionCount;
-		}
-	}
-
-	return intersectionCount % 2 == 1;
-}
-
 
 /*
 distantPointはB側の点
@@ -2190,142 +1845,6 @@ inline ClippingRelation CalcRetation(const ClipperLib::Path & polygonA, const Cl
 	}
 	// Contain or Distant
 	return IsInner(polygonA, sharedDistant.second.value()) ? ClippingRelation::Contain : ClippingRelation::Distant;
-}
-
-
-//inline ClippingRelation CalcRetation(const ClipperLib::Path & polygonA, const ClipperLib::Path & polygonB)
-//{
-//	const Polygon poly = ToPoly(polygonA);
-//	const Polygon hole = ToPoly(polygonB);
-//
-//	if (!poly.intersects(hole))
-//	{
-//		LOG(L"Relation is ClippingRelation::Distant");
-//		return ClippingRelation::Distant;
-//	}
-//
-//	if (poly.contains(hole))
-//	{
-//		LOG(L"Relation is ClippingRelation::Contain");
-//		return ClippingRelation::Contain;
-//	}
-//
-//	LOG(L"polygonB.size: ", polygonB.size());
-//	if (poly.contains(ToVec2(MidPoint(polygonB[0], polygonB[polygonB.size() / 2]))))
-//	{
-//		LOG(L"Relation is ClippingRelation::AdjacentInner");
-//		return ClippingRelation::AdjacentInner;
-//	}
-//	LOG(L"Relation is ClippingRelation::AdjacentOuter");
-//	return ClippingRelation::AdjacentOuter;
-//}
-
-/*
-newSegmentIndex: セグメントの追加が起きる場合があるので、新たなセグメントに振るインデックスに使う
-*/
-inline std::pair<ClipperLib::Paths, Optional<AdditionalInfo>> PolygonSubtract(const ClipperLib::Path & polygonA, const ClipperLib::Path & polygonB, size_t& newSegmentIndex)
-{
-	const Polygon poly = ToPoly(polygonA);
-	const Polygon hole = ToPoly(polygonB);
-
-	if (poly.contains(hole))
-	{
-		TEST_LOG(L"PolygonSubtract: 穴の追加");
-
-		double rayLength = Window::Height();
-
-		size_t startIndex = 0;
-		double minimumHeight = polygonB[0].Y;
-		for (size_t i = 0; i < polygonB.size(); ++i)
-		{
-			if (polygonB[i].Y < minimumHeight)
-			{
-				minimumHeight = polygonB[i].Y;
-				startIndex = i;
-			}
-		}
-
-		using IntersectionType = std::pair<ClipperLib::IntPoint, size_t>;
-		std::vector<IntersectionType> intersectionList;
-		for (; intersectionList.empty(); rayLength *= 2.0)
-		{
-			const Line divLine(ToVec2(polygonB[startIndex]), ToVec2(polygonB[startIndex]) + Vec2(0, -1)*rayLength);
-			for (size_t i = 0; i < polygonA.size(); ++i)
-			{
-				const Line polyLine = ToLine(polygonA[i], polygonA[(i + 1) % polygonA.size()]);
-				if (auto intersectionOpt = divLine.intersectsAt(polyLine))
-				{
-					if (polygonA[i].Z == polygonA[(i + 1) % polygonA.size()].Z)
-					{
-						intersectionList.emplace_back(ToIntPoint(intersectionOpt.value(), polygonA[i].Z), i);
-						//auto pt = ToIntPoint(intersectionOpt.value(), 0);
-						//ZFillFunc(polygonA[i], polygonA[(i + 1) % polygonA.size()], polygonB[startIndex], polygonB[startIndex], pt);
-					}
-					else
-					{
-						LOG_ERROR(L"iとi+1の間で曲線が切り替わる");
-						return{};
-					}
-				}
-			}
-		}
-
-		const Vec2 basePos = ToVec2(polygonB[startIndex]);
-
-		std::sort(intersectionList.begin(), intersectionList.end(),
-			[&](const IntersectionType& a, const IntersectionType& b) {
-			return basePos.distanceFromSq(ToVec2(a.first)) < basePos.distanceFromSq(ToVec2(b.first));
-		}
-		);
-
-		ClipperLib::Path result;
-
-		std::pair<ClipperLib::IntPoint, size_t> edgeA = intersectionList.front();
-		ClipperLib::IntPoint edgeB = polygonB[startIndex];
-
-		/*
-		CurveSegmentsには存在しない線分を追加するので、それも返す必要がある
-		*/
-		AdditionalInfo segments;
-		{
-			edgeA.first.Z = MergeIndex(edgeA.first.Z, newSegmentIndex);
-			edgeB.Z = MergeIndex(edgeB.Z, newSegmentIndex);
-
-			segments.additionalSegments.emplace_back();
-			auto& newSegment = segments.additionalSegments.back();
-			newSegment.setLine(ClipVertex(edgeA.first).m_pos, ClipVertex(edgeB).m_pos);
-
-			++newSegmentIndex;
-		}
-
-		result.push_back(edgeA.first);
-		for (size_t i = 1; i < polygonA.size(); ++i)
-		{
-			result.push_back(polygonA[(edgeA.second + i) % polygonA.size()]);
-		}
-		result.push_back(edgeA.first);
-
-		/*result.push_back(polygonB[startIndex]);
-		for (size_t i = 1; i < polygonB.size(); ++i)
-		{
-		result.push_back(polygonB[(startIndex + i) % polygonB.size()]);
-		}
-		result.push_back(polygonB[startIndex]);*/
-		result.push_back(edgeB);
-		for (size_t i = 1; i < polygonB.size(); ++i)
-		{
-			result.push_back(polygonB[(startIndex + i) % polygonB.size()]);
-		}
-		result.push_back(edgeB);
-
-		return std::pair<ClipperLib::Paths, Optional<AdditionalInfo>>{ {result}, segments };
-	}
-	else
-	{
-		TEST_LOG(L"PolygonSubtract: グラフ探索");
-		VerticesGraph graph;
-		return std::pair<ClipperLib::Paths, Optional<AdditionalInfo>>{ graph.setPolygons(polygonA, polygonB), none };
-	}
 }
 
 inline ClipperLib::Paths PolygonSubtract2(const ClipperLib::Path & polygonA, const ClipperLib::Path & polygonB)

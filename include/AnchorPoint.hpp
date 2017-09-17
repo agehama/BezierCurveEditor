@@ -115,13 +115,27 @@ public:
 		return none;
 	}
 
-	void draw(double radius)const
+	void draw(double radius, int alpha)const
 	{
+		/*
 		innerHandle().draw();
 		outerHandle().draw();
 		Circle(controlPointA(), radius*0.5).draw(Palette::Cyan);
 		Circle(anchorPoint(), radius).drawFrame(1.0, 1.0, Palette::Yellow);
 		Circle(controlPointB(), radius*0.5).draw(Palette::Cyan);
+		*/
+
+		/*innerHandle().draw(Color(237, 237, 245));
+		outerHandle().draw(Color(237, 237, 245));
+		Circle(controlPointA(), radius*0.5).draw(Color(112, 86, 151));
+		Circle(anchorPoint(), radius).drawFrame(1.0, 1.0, Color(112, 86, 151));
+		Circle(controlPointB(), radius*0.5).draw(Color(112, 86, 151));*/
+
+		innerHandle().draw(Color(170, 170, 170, alpha));
+		outerHandle().draw(Color(170, 170, 170, alpha));
+		Circle(controlPointA(), radius*0.5).draw(Color(112, 86, 151, alpha));
+		Circle(anchorPoint(), radius).drawFrame(1.0, 1.0, Color(112, 86, 151, alpha));
+		Circle(controlPointB(), radius*0.5).draw(Color(112, 86, 151, alpha));
 	}
 
 private:
