@@ -16,7 +16,7 @@ int64 profilingTime4;
 
 //#define DEBUG_OUTPUT_IMAGE
 
-//std::vector<std::vector<Vec2>> debugPoss;
+std::vector<std::vector<Vec2>> debugPoss;
 //std::vector<CurveSegment> debugSegments;
 
 std::vector<ClipperLib::IntPoint> intersectionPoints;
@@ -338,7 +338,7 @@ public:
 
 		if (Input::MouseL.clicked)
 		{
-			if (2 <= m_anchorPoints.size() && Circle(m_anchorPoints.front().anchorPoint(), AnchorPointRadius()).mouseOver)
+			if (2 <= m_anchorPoints.size() && Circle(m_anchorPoints.front().anchorPoint_Screen(), AnchorPointRadius()).mouseOver)
 			{
 				m_isClosed = true;
 			}
@@ -383,13 +383,14 @@ public:
 		std::vector<Vec2> pp;
 		for (const auto& segment : m_curveSegments)
 		{
-			const auto& curve = segment.curve();
+			//const auto& curve = segment.curve();
 
 			const int divNum = 30;
 			for (int p = 0; p < divNum; ++p)
 			{
 				const double t = 1.0*p / divNum;
-				pp.push_back(curve(t));
+				//pp.push_back(curve(t));
+				pp.push_back(segment.curve(t));
 			}
 		}
 
@@ -397,7 +398,7 @@ public:
 		{
 			if (!m_isClosed)
 			{
-				pp.push_back(m_anchorPoints.back().anchorPoint());
+				pp.push_back(m_anchorPoints.back().anchorPoint_Screen());
 			}
 
 			//LineString(pp).draw(Color(isActive ? Palette::Yellow : Palette::Lime, 64), m_isClosed);
@@ -438,134 +439,22 @@ public:
 			}
 		}
 	}
-
-	/*
-	多角形に変換
-	*/
-	ClipperLib::Path getPath(size_t startIndex, int divNum)const
-	{
-		ClipperLib::Path result;
-
-		for (int segment = 0; segment < m_curveSegments.size(); ++segment)
-		{
-			for (int d = 0; d < divNum; ++d)
-			{
-				//const double progress = Clamp(1.0*d / (divNum - 1), 0.01, 0.99);
-				//const double progress = 1.0*d / (divNum - 1);
-				const double progress = 1.0*d / divNum;
-				const auto p = m_curveSegments[segment].curve().get(progress).asPoint();
-				//result << ClipperLib::IntPoint(p.x, p.y, startIndex + segment);
-				result << ClipperLib::IntPoint(p.x * scaleInt, p.y * scaleInt, startIndex + segment);
-			}
-		}
-
-		return result;
-	}
-
+	
 	//二分探索的に計算しようとする方法
 	//直線距離は単調増加でないので、ちゃんと曲線に沿った距離の近似をする必要がある
 	//始点は入れる
 	//終点は入れない
 	ClipperLib::Path getPathHighPrecision(size_t startIndex, double interval, double permissibleError = 1.0)const
 	{
-		/*
-		ClipperLib::Path result;
-		
-		for (int segment = 0; segment < m_curveSegments.size(); ++segment)
-		{
-			const auto& curve = m_curveSegments[segment].curve();
-			const Vec2 startPos = curve(0.0);
-			result << ClipperLib::IntPoint(startPos.x * scaleInt, startPos.y * scaleInt, startIndex + segment);
-			
-			const auto binarySearchStep = [&](double prevT, double leftBound, double rightBound)->double
-			{
-				for (int count = 0; count < 100; ++count)
-				{
-					double newT = (leftBound + rightBound)*0.5;
-
-					const double distance = curve.length(prevT, newT);
-					if ((interval - permissibleError) <= distance && distance <= (interval + permissibleError))//OK!
-					{
-						const Vec2 newPos = curve(newT);
-						result << ClipperLib::IntPoint(newPos.x * scaleInt, newPos.y * scaleInt, startIndex + segment);
-						return newT;
-					}
-					else if (distance < interval - permissibleError)//足りない
-					{
-						leftBound = newT;
-					}
-					else//進みすぎ
-					{
-						rightBound = newT;
-					}
-				}
-
-				LOG_ERROR(L"収束に失敗");
-
-				return (leftBound + rightBound)*0.5;
-			};
-
-			double currentT = 0.0;
-			for (; interval + permissibleError < curve.length(currentT, 1);)
-			{
-				currentT = binarySearchStep(currentT, currentT, 1.0);
-			}
-		}
-
-		return result;
-		*/
-
 		ClipperLib::Path result;
 
 		for (int segment = 0; segment < m_curveSegments.size(); ++segment)
 		{
-			//getSpecificPathHighPrecision(result, startIndex, segment, interval, permissibleError);
 			m_curveSegments[segment].getSpecificPathHighPrecision(result, startIndex + segment, interval, permissibleError);
 		}
 
 		return result;
 	}
-
-	//void getSpecificPathHighPrecision(ClipperLib::Path& output, size_t startIndex, size_t segmentIndex, double interval, double permissibleError = 1.0)const
-	//{
-	//	const auto& curve = m_curveSegments[segmentIndex].curve();
-	//	const Vec2 startPos = curve(0.0);
-	//	output << ClipperLib::IntPoint(startPos.x * scaleInt, startPos.y * scaleInt, startIndex + segmentIndex);
-
-	//	const auto binarySearchStep = [&](double prevT, double leftBound, double rightBound)->double
-	//	{
-	//		for (int count = 0; count < 100; ++count)
-	//		{
-	//			double newT = (leftBound + rightBound)*0.5;
-
-	//			const double distance = curve.length(prevT, newT);
-	//			if ((interval - permissibleError) <= distance && distance <= (interval + permissibleError))//OK!
-	//			{
-	//				const Vec2 newPos = curve(newT);
-	//				output << ClipperLib::IntPoint(newPos.x * scaleInt, newPos.y * scaleInt, startIndex + segmentIndex);
-	//				return newT;
-	//			}
-	//			else if (distance < interval - permissibleError)//足りない
-	//			{
-	//				leftBound = newT;
-	//			}
-	//			else//進みすぎ
-	//			{
-	//				rightBound = newT;
-	//			}
-	//		}
-
-	//		LOG_ERROR(L"収束に失敗");
-
-	//		return (leftBound + rightBound)*0.5;
-	//	};
-
-	//	double currentT = 0.0;
-	//	for (; interval + permissibleError < curve.length(currentT, 1);)
-	//	{
-	//		currentT = binarySearchStep(currentT, currentT, 1.0);
-	//	}
-	//}
 
 	std::vector<Vec2> getSegmentPathHighPrecision(size_t segmentIndex, double interval, double permissibleError = 1.0)const
 	{
@@ -575,52 +464,6 @@ public:
 		curveSegment.getSpecificPathHighPrecision(result, interval, permissibleError);
 
 		return result;
-
-		/*
-		std::vector<Vec2> result;
-
-		const auto& curve = m_curveSegments[segmentIndex].curve();
-		
-		result.push_back(curve(0.0));
-
-		const auto binarySearchStep = [&](double prevT, double leftBound, double rightBound)->double
-		{
-			for (int count = 0; count < 100; ++count)
-			{
-				double newT = (leftBound + rightBound)*0.5;
-
-				const double distance = curve.length(prevT, newT);
-				if ((interval - permissibleError) <= distance && distance <= (interval + permissibleError))//OK!
-				{
-					const Vec2 newPos = curve(newT);
-					result.push_back(newPos);
-					return newT;
-				}
-				else if (distance < interval - permissibleError)//足りない
-				{
-					leftBound = newT;
-				}
-				else//進みすぎ
-				{
-					rightBound = newT;
-				}
-			}
-
-			LOG_ERROR(L"収束に失敗");
-
-			return (leftBound + rightBound)*0.5;
-		};
-
-		double currentT = 0.0;
-		for (; interval + permissibleError < curve.length(currentT, 1);)
-		{
-			currentT = binarySearchStep(currentT, currentT, 1.0);
-		}
-		
-		result.push_back(curve(1.0));
-
-		return result;
-		*/
 	}
 	
 	bool isClosed()const
@@ -642,12 +485,50 @@ public:
 	{
 		for (const auto& p : m_anchorPoints)
 		{
-			writer.write(p[0], p[1], p[2]);
+			//writer.write(p[0], p[1], p[2]);
+			writer.write(p.controlPointA_Raw(), p.anchorPoint_Raw(), p.controlPointB_Raw());
 		}
 		writer.nextLine();
 	}
-			
+
+	const Vec2& pos()const { return m_pos; }
+
+	double scale()const { return m_scale; }
+
+	double angle()const { return m_angle; }
+
+	void setPos(const Vec2& pos)
+	{
+		m_pos = pos;
+		updateTransforms();
+	}
+
+	void setScale(double scale)
+	{
+		m_scale = scale;
+		updateTransforms();
+	}
+	
+	void setAngle(double angle)
+	{
+		m_angle = angle;
+		updateTransforms();
+	}
+
 private:
+
+	void updateTransforms()
+	{
+		const Mat3x2 transform = Mat3x2::Identity().scale(m_scale).rotate(m_angle).translate(m_pos);
+		const Mat3x2 transformInv = transform.inverse();
+
+		for (auto& p : m_anchorPoints)
+		{
+			p.setTransform(transform, transformInv);
+		}
+
+		constractCurveSegments();
+	}
 
 	void calcIntersections()
 	{
@@ -671,7 +552,8 @@ private:
 			{
 				++intersectionCount;
 
-				const Vec2 pos = m_curveSegments[i].curve().get(t.value().first);
+				//const Vec2 pos = m_curveSegments[i].curve().get(t.value().first);
+				const Vec2 pos = m_curveSegments[i].curve(t.value().first);
 				Circle(pos, AnchorPointRadius()).draw(Color(255, 255, 0));
 			}
 		}
@@ -688,10 +570,11 @@ private:
 
 		for (size_t i = 0; i + 1 < m_anchorPoints.size() || (m_isClosed && i < m_anchorPoints.size()); ++i)
 		{
-			const auto l0 = m_anchorPoints[i].outerHandle();
-			const auto l1 = m_anchorPoints[(i + 1) % m_anchorPoints.size()].innerHandle();
+			const auto l0 = m_anchorPoints[i].outerHandle_Raw();
+			const auto l1 = m_anchorPoints[(i + 1) % m_anchorPoints.size()].innerHandle_Raw();
 
 			m_curveSegments.emplace_back(l0.begin, l0.end, l1.begin, l1.end);
+			m_curveSegments.back().setTransform(m_anchorPoints[i].transform(), m_anchorPoints[i].transformInv());
 		}
 	}
 
@@ -699,6 +582,10 @@ private:
 	{
 		return 7.5;
 	}
+
+	Vec2 m_pos = Vec2(0, 0);
+	double m_scale = 1.0;
+	double m_angle = 0.0;
 
 	std::vector<AnchorPoint> m_anchorPoints;
 	std::vector<CurveSegment> m_curveSegments;
@@ -797,10 +684,10 @@ public:
 			const auto prevRange = prevSegment.range();
 			const auto postRange = postSegment.range();
 
-			const Vec2 prevEnd = prevSegment.curve().get(prevRange.second);
-			const Vec2 currentBegin = curveSegment.curve().get(currentRange.first);
-			const Vec2 currentEnd = curveSegment.curve().get(currentRange.second);
-			const Vec2 postBegin = postSegment.curve().get(postRange.first);
+			const Vec2 prevEnd = prevSegment.curve(prevRange.second);
+			const Vec2 currentBegin = curveSegment.curve(currentRange.first);
+			const Vec2 currentEnd = curveSegment.curve(currentRange.second);
+			const Vec2 postBegin = postSegment.curve(postRange.first);
 
 			const double distPrevSq = (prevEnd - currentBegin).lengthSq();
 			const double distPostSq = (postBegin - currentEnd).lengthSq();
@@ -809,8 +696,8 @@ public:
 			{
 				const Vec2 mid = (prevEnd + currentBegin)*0.5;
 
-				const double candidatePrevEndT = prevSegment.curve().closestPoint(mid);
-				const Vec2 candidateNewPrevEnd = prevSegment.curve().get(candidatePrevEndT);
+				const double candidatePrevEndT = prevSegment.closestPoint(mid);
+				const Vec2 candidateNewPrevEnd = prevSegment.curve(candidatePrevEndT);
 				const double candidateNewDistPrevSq = (candidateNewPrevEnd - currentBegin).lengthSq();
 
 				Vec2 newPrevEnd = prevEnd;
@@ -823,8 +710,8 @@ public:
 					newDistPrevSq = candidateNewDistPrevSq;
 				}
 
-				const double candidateCurrentBeginT = curveSegment.curve().closestPoint(mid);
-				const Vec2 candidateNewCurrentBegin = curveSegment.curve().get(candidateCurrentBeginT);
+				const double candidateCurrentBeginT = curveSegment.closestPoint(mid);
+				const Vec2 candidateNewCurrentBegin = curveSegment.curve(candidateCurrentBeginT);
 
 				if ((newPrevEnd - candidateNewCurrentBegin).lengthSq() < newDistPrevSq)
 				{
@@ -836,8 +723,8 @@ public:
 			{
 				const Vec2 mid = (postBegin + currentBegin)*0.5;
 
-				const double candidatePostBeginT = postSegment.curve().closestPoint(mid);
-				const Vec2 candidateNewPostBegin = postSegment.curve().get(candidatePostBeginT);
+				const double candidatePostBeginT = postSegment.closestPoint(mid);
+				const Vec2 candidateNewPostBegin = postSegment.curve(candidatePostBeginT);
 				const double candidateNewDistPostSq = (candidateNewPostBegin - currentEnd).lengthSq();
 
 				Vec2 newPostBegin = postBegin;
@@ -850,8 +737,8 @@ public:
 					newDistPostSq = candidateNewDistPostSq;
 				}
 
-				const double candidateCurrentEndT = curveSegment.curve().closestPoint(mid);
-				const Vec2 candidateNewCurrentEnd = curveSegment.curve().get(candidateCurrentEndT);
+				const double candidateCurrentEndT = curveSegment.closestPoint(mid);
+				const Vec2 candidateNewCurrentEnd = curveSegment.curve(candidateCurrentEndT);
 
 				if ((newPostBegin - candidateNewCurrentEnd).lengthSq() < newDistPostSq)
 				{
@@ -996,16 +883,24 @@ public:
 
 			const auto& loopCurve = getLoopCurve(loopIndex);
 
-			std::vector<Vec2> result;
+			/*std::vector<Vec2> result;
 
 			for (int segment = 0; segment < loopCurve.size(); ++segment)
 			{
 				loopCurve[segment].first.getSpecificPathHighPrecision(result, interval, permissibleError);
 			}
 
-			LineString(result).write(image, 1.0, Palette::Cyan, true);
+			LineString(result).write(image, 1.0, Palette::Cyan, true);*/
 
-			image.savePNG(Format(filenameBase, L"_loop.png"));
+			for (int segment = 0; segment < loopCurve.size(); ++segment)
+			{
+				const auto range = loopCurve[segment].first.range();
+				//loopCurve[segment].first.write(image,30,Palette::Cyan, range.first, range.second);
+				LOG(__LINE__, L": ", range.first, L", ", range.second);
+				loopCurve[segment].first.write(image, 30, Palette::Cyan);
+			}
+
+			image.savePNG(Format(filenameBase, L"_curve.png"));
 		}
 
 		{
@@ -1015,7 +910,7 @@ public:
 			
 			LineString(loopLines).write(image, 1.0, Palette::Lime, true);
 
-			image.savePNG(Format(filenameBase, L"_curve.png"));
+			image.savePNG(Format(filenameBase, L"_lines.png"));
 		}
 
 		{
@@ -1216,7 +1111,9 @@ private:
 			for (const auto& segment : segments)
 			{
 				const auto range = segment.first.range();
-				segment.first.curve().write(image2, 30, color, range.first, range.second);
+				//segment.first.curve().write(image2, 30, color, range.first, range.second);
+				//segment.first.write(image2, 30, color, range.first, range.second);
+				segment.first.write(image2, 30, color);
 			}
 		}
 
@@ -1363,13 +1260,13 @@ private:
 
 						if (Input::KeyControl.pressed)
 						{
-							curveSegment.curve().drawArrow(8, HSV(15 * i, 1, 1), curveSegment.range().first, curveSegment.range().second);
+							curveSegment.drawArrow(8, HSV(15 * i, 1, 1), curveSegment.range().first, curveSegment.range().second);
 						}
 						else
 						{
 							//curveSegment.curve().draw(30, HSV(15 * i, 1, 1), curveSegment.range().first, curveSegment.range().second);
 							//curveSegment.curve().draw(30, getColor(m_loopIsHole[i]), curveSegment.range().first, curveSegment.range().second);
-							curveSegment.curve().draw(30, Palette::Cyan, curveSegment.range().first, curveSegment.range().second);
+							curveSegment.draw(30, Palette::Cyan, curveSegment.range().first, curveSegment.range().second);
 							if (Input::KeyC.pressed)
 							{
 								Circle(curveSegmentPair.second.begin, 5).drawFrame(1.0, 0.0, HSV(15 * i, 1, 1));
@@ -1434,12 +1331,12 @@ private:
 					if (Input::KeyControl.pressed)
 					{
 						//curveSegment.curve().drawArrow(8, getColor(m_loopIsHole[i]), curveSegment.range().first, curveSegment.range().second);
-						curveSegment.curve().drawArrow(8, Palette::Cyan, curveSegment.range().first, curveSegment.range().second);
+						curveSegment.drawArrow(8, Palette::Cyan, curveSegment.range().first, curveSegment.range().second);
 					}
 					else
 					{
 						//curveSegment.curve().draw(30, getColor(m_loopIsHole[i]), curveSegment.range().first, curveSegment.range().second);
-						curveSegment.curve().draw(30, Palette::Cyan, curveSegment.range().first, curveSegment.range().second);
+						curveSegment.draw(30, Palette::Cyan, curveSegment.range().first, curveSegment.range().second);
 						if (Input::KeyC.pressed)
 						{
 							/*Circle(curveSegmentPair.second.begin, 5).drawFrame(1.0, 0.0, getColor(m_loopIsHole[i]));
@@ -1502,6 +1399,16 @@ public:
 			}
 		}
 
+		if (Input::KeyR.clicked)
+		{
+			m_paths[1].setAngle(m_paths[1].angle() + 15_deg);
+		}
+
+		if (Input::KeyS.clicked)
+		{
+			m_paths[1].setScale(m_paths[1].scale()*1.2);
+		}
+
 		if (Input::KeyEnter.clicked && 3 == m_paths.size())
 		{
 			LOG(L"======================================================");
@@ -1529,6 +1436,11 @@ public:
 				/*
 				pathを使ってブーリアン
 				*/
+
+
+#ifdef DEBUG_OUTPUT_IMAGE
+				TestSave(path1, path2, L"input_path.png");
+#endif
 
 				StopwatchMicrosec watch2(true);
 
@@ -1575,14 +1487,13 @@ public:
 				}
 #endif
 				
-				//return;
 			}
 
 			int processCount = 0;
 
 			int checkCount = 0;
 
-			const int numOfLoops = m_pTree->numOfLoops();
+			//const int numOfLoops = m_pTree->numOfLoops();
 
 #ifdef DEBUG_OUTPUT_IMAGE
 			/*
@@ -1595,10 +1506,11 @@ public:
 			}*/
 #endif
 
-			for (int loopIndex = 0; loopIndex < numOfLoops; ++loopIndex)
+			for (int loopIndex = 0; loopIndex < m_pTree->numOfLoops(); ++loopIndex)
 			{
 #ifdef DEBUG_OUTPUT_IMAGE
 				{
+					/*
 					for (int innerLoopIndex = 0; innerLoopIndex < numOfLoops; ++innerLoopIndex)
 					{
 						size_t innerIndexOffset = 1;
@@ -1616,6 +1528,28 @@ public:
 							m_pTree->debugLoopPath(Format(L"path_dump_", checkCount), loopIndex, 1, polygonizeInterval);
 						}
 					}
+					*/
+					for (int innerLoopIndex = 0; innerLoopIndex < m_pTree->numOfLoops(); ++innerLoopIndex)
+					{
+						size_t innerIndexOffset = 1;
+						//auto innerPathLoop = m_pTree->getLoopPath(innerLoopIndex, innerIndexOffset, polygonizeInterval);
+						auto innerPathLines = m_pTree->getLoopLines(innerLoopIndex);
+
+						//TestSave({ innerPathLoop }, Format(L"innerInputPath_", processCount, L"_", innerLoopIndex, L".png"));
+						Image image(640, 480, Palette::White);
+						TestSave(innerPathLines, image, true, Color(255, 0, 0));
+						image.savePNG(Format(L"phase_", processCount, L"_loop", innerLoopIndex, L"_lines.png"));
+					}
+
+					for (int innerHoleIndex = 0; innerHoleIndex < m_pTree->numOfHoles(); ++innerHoleIndex)
+					{
+						size_t innerIndexOffset = 1;
+						auto innerHoleLines = m_pTree->getHoleLines(innerHoleIndex);
+
+						Image image(640, 480, Palette::White);
+						TestSave(innerHoleLines, image, true, Color(0, 255, 0));
+						image.savePNG(Format(L"phase_", processCount, L"_hole", innerHoleIndex, L"_lines.png"));
+					}
 				}
 #endif
 
@@ -1630,7 +1564,7 @@ public:
 
 					SegmentsHolder loopSegmentsHolder;
 
-					StopwatchMicrosec watch4(true);
+					//StopwatchMicrosec watch4(true);
 
 					const auto loopSegments = m_pTree->getLoopCurve(loopIndex);
 
@@ -1661,7 +1595,7 @@ public:
 						{
 							LOG_DEBUG(L"穴の除去完了");
 							//profiler.end(); 
-							LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
+							//LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
 							
 							break;
 						}
@@ -1673,7 +1607,7 @@ public:
 						{
 							LOG_ERROR(L"L(", __LINE__, L"): 穴の除去に失敗");
 							//profiler.end(); 
-							LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
+							//LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
 							break;
 						}
 					}
@@ -1758,7 +1692,7 @@ public:
 						{
 							LOG_ERROR(L"L(", __LINE__, L"): 穴の除去に失敗");
 							//profiler.end(); 
-							LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
+							//LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
 							return;
 						}
 						else
@@ -1805,7 +1739,7 @@ public:
 					{
 						LOG_ERROR(L"polygon relation was unknown");
 						//profiler.end(); 
-						LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
+						//LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
 						return;
 					}
 					//無視できるケース（外側に接する or 完全に外側）
@@ -1816,7 +1750,7 @@ public:
 					//	//continue;
 					//}
 
-					LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
+					//LOG(L"remove hole loop: ", static_cast<double>(watch4.us()) / 1000.0, L"[ms]");
 				}
 
 				//m_pTree->eraseHole(0);
@@ -2000,7 +1934,8 @@ public:
 	{
 		for(auto i : step(m_paths.size()))
 		{
-			m_paths[i].draw((m_editIndex ? m_editIndex.value() == i : false) || Input::KeyO.pressed);
+			//m_paths[i].draw((m_editIndex ? m_editIndex.value() == i : false) || Input::KeyO.pressed);
+			m_paths[i].draw();
 		}
 
 		//for (const auto& curve : drawCurves)
@@ -2032,7 +1967,7 @@ public:
 		}
 		else if (m_pTree)
 		{
-			//m_pTree->draw();
+			m_pTree->draw();
 		}
 
 		if (Input::KeyD.pressed)
@@ -2057,7 +1992,7 @@ public:
 			}*/
 		}
 
-		Window::SetTitle(Mouse::Pos());
+		//Window::SetTitle(Mouse::Pos());
 
 		//if (!debugSegments.empty())
 		//{
@@ -2466,7 +2401,7 @@ private:
 			curve1T2 = curve1.closestPointOpt(p2.m_pos, error);
 
 			//if (lower1 == 6 && lower2 == 7)
-			if(debugFlag)
+			if(debugFlag,true)
 			{
 				LOG_DEBUG(L"================================");
 				LOG_DEBUG(L"Curve1: ", curve1.curve(0.0), L" -> ", curve1.curve(1.0));
@@ -2487,7 +2422,7 @@ private:
 			curve2T2 = curve2.closestPointOpt(p2.m_pos, error);
 
 			//if (lower1 == 6 && lower2 == 7)
-			if (debugFlag)
+			if (debugFlag, true)
 			{
 				LOG_DEBUG(L"Curve2: ", curve2.curve(0.0), L" -> ", curve2.curve(1.0));
 				LOG_DEBUG(L"case p1: ", p1.m_pos, L" then ", curve2T1);
@@ -2517,7 +2452,9 @@ private:
 				curve2T1 = curve2Opt.value().closestPoint(p1.m_pos);
 				*/
 				//const Vec2 moveTo = curve2Opt.value().get(curve2Opt.value().closestPoint(p1.m_pos));
-				const Vec2 moveTo = curve2Opt.value().curve().get(curve2Opt.value().curve().closestPoint(p1.m_pos));
+				
+				const Vec2 moveTo = curve2Opt.value().curve(curve2Opt.value().closestPoint(p1.m_pos));
+				//const Vec2 moveTo = curve2Opt.value().curve().get(curve2Opt.value().curve().closestPoint(p1.m_pos));
 				LOG_DEBUG(L"Path point ", p2.m_pos, L" is moved to ", moveTo);
 				p2.m_pos = moveTo;
 				p2.m_Z = lower2;
@@ -2704,11 +2641,11 @@ private:
 			{
 				pTree->nextLoop(isHoles[loopCount]);
 
-				//Image image(640, 480, Palette::White);
+				Image image(640, 480, Palette::White);
 
 				std::vector<Vec2> debugLoop;
 
-				//LOG_DEBUG(L"Curve: ");
+				LOG_DEBUG(L"Curve: ");
 				for (auto i : step(segmentStarts.size()))
 				{
 					const auto& segmentStart = segmentStarts[i];
@@ -2720,30 +2657,38 @@ private:
 
 					debugLoop.push_back(startPos);
 
-					//LOG_DEBUG(L"____Pos:", startPos, L", index: ", zIndex);
+					LOG_DEBUG(L"____Pos:", startPos, L", index: ", zIndex);
 
 					if (const auto indicesOpt = UnpackZIndex(zIndex, originalPaths))
 					{
 						const auto& indices = indicesOpt.value();
 
-						const auto curve = originalPaths[indices.first].segment(indices.second).curve();
+						//const auto curveSegment = originalPaths[indices.first].segment(indices.second);
+						CurveSegment curveSegment = originalPaths[indices.first].segment(indices.second);
 
-						const double startT = curve.closestPoint(startPos);
-						const double endT = curve.closestPoint(endPos);
-
-						//LOG_DEBUG(L"____Result1:", startPos, L" -> ", curve(startT));
-						//LOG_DEBUG(L"____Result2:", endPos, L" -> ", curve(endT));
+						const double startT = curveSegment.closestPoint(startPos);
+						const double endT = curveSegment.closestPoint(endPos);
 						
-						pTree->addSegment(isHoles[loopCount], CurveSegment(curve, startT, endT), Line(startPos, endPos));
+						curveSegment.setRange(startT, endT);
 
-						//curve.write(image, 30, RandomColor().setAlpha(128), startT, endT);
+						LOG_DEBUG(L"________Result1:", startPos, L" -> ", curveSegment.curve(startT), L", t:", startT);
+						LOG_DEBUG(L"________Result2:", endPos, L" -> ", curveSegment.curve(endT), L", t:", endT);
+
+						//pTree->addSegment(isHoles[loopCount], CurveSegment(curveSegment, startT, endT), Line(startPos, endPos));
+						pTree->addSegment(isHoles[loopCount], curveSegment, Line(startPos, endPos));
+
+						//const auto range = curveSegment.range();
+						//curveSegment.write(image, 30, RandomColor().setAlpha(128), range.first, range.second);
+						curveSegment.write(image, 30, RandomColor().setAlpha(128));
+						//curveSegment.write(image, 30, RandomColor().setAlpha(128), startT, endT);
+						//CurveSegment(curveSegment, startT, endT).write(image, 30, RandomColor().setAlpha(128));
 					}
 				}
 
-				//debugPoss.push_back(debugLoop);
+				debugPoss.push_back(debugLoop);
 
 #ifdef DEBUG_OUTPUT_IMAGE
-				//image.savePNG(Format(L"debug_", imageSaveCount++, L".png"));
+				image.savePNG(Format(L"debug_", imageSaveCount++, L".png"));
 #endif
 
 				++loopCount;
@@ -2940,7 +2885,9 @@ private:
 			{
 				pTree->nextLoop(isHoles[loopCount]);
 
-				//Image image(640, 480, Palette::White);
+#ifdef DEBUG_OUTPUT_IMAGE
+				Image image(640, 480, Palette::White);
+#endif
 
 				std::vector<Vec2> debugLoop;
 
@@ -2962,15 +2909,26 @@ private:
 					{
 						const auto& indices = indicesOpt.value();
 
-						const auto curve = originalPaths[indices.first].segment(indices.second).curve();
+						/*const auto curve = originalPaths[indices.first].segment(indices.second).curve();
 
 						const double startT = curve.closestPoint(startPos);
 						const double endT = curve.closestPoint(endPos);
 
 						LOG_DEBUG(L"____Result1:", startPos, L" -> ", curve(startT));
-						LOG_DEBUG(L"____Result2:", endPos, L" -> ", curve(endT));
+						LOG_DEBUG(L"____Result2:", endPos, L" -> ", curve(endT));*/
 
-						pTree->addSegment(isHoles[loopCount], CurveSegment(curve, startT, endT), Line(startPos, endPos));
+						auto curveSegment = originalPaths[indices.first].segment(indices.second);
+
+						const double startT = curveSegment.closestPoint(startPos);
+						const double endT = curveSegment.closestPoint(endPos);
+
+						LOG_DEBUG(L"____Result1:", startPos, L" -> ", curveSegment.curve(startT));
+						LOG_DEBUG(L"____Result2:", endPos, L" -> ", curveSegment.curve(endT));
+
+						curveSegment.setRange(startT, endT);
+
+						//pTree->addSegment(isHoles[loopCount], CurveSegment(curveSegment, startT, endT), Line(startPos, endPos));
+						pTree->addSegment(isHoles[loopCount], curveSegment, Line(startPos, endPos));
 
 						//curve.write(image, 30, RandomColor().setAlpha(128), startT, endT);
 					}

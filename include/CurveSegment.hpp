@@ -54,6 +54,12 @@ public:
 		init();
 	}
 
+	CurveSegment(const CurveSegment& segment)
+	{
+		*this = segment;
+		init();
+	}
+
 	void setLine(const Vec2& p0, const Vec2& p1)
 	{
 		m_curve = BezierCurve(p0, p0, p1, p1);
@@ -129,7 +135,7 @@ public:
 		Println(m_segmentTree->boundingRect().toString());
 	}
 
-	const BezierCurve& curve()const
+	/*const BezierCurve& curve()const
 	{
 		return m_curve;
 	}
@@ -137,6 +143,64 @@ public:
 	Vec2 curve(double t)const
 	{
 		return m_curve(t);
+	}*/
+
+	Vec2 curve(double t)const
+	{
+		return m_transform.transform(m_curve(t));
+	}
+
+	double closestPoint(const Vec2& pos)const
+	{
+		return m_curve.closestPoint(m_transformInv.transform(pos));
+	}
+
+	Optional<double> closestPointOpt(const Vec2& pos, double threshold)const
+	{
+		const double scaling = m_transformInv.transform(Vec2(0, 0)).distanceFrom(m_transformInv.transform(Vec2(1, 0)));
+		//LOG(__FILEW__,L", scaling: ", scaling);
+		
+		return m_curve.closestPointOpt(m_transformInv.transform(pos), threshold*scaling, m_startT, m_endT);
+	}
+
+	void draw(int divNum = 30, const Color& color = Palette::White, double startT = 0.0, double endT = 1.0)const
+	{
+		for (int i = 0; i < divNum; ++i)
+		{
+			const double progress0 = 1.0*i / divNum;
+			const double progress1 = 1.0*(i + 1) / divNum;
+			Line(curve(Lerp(startT, endT, progress0)), curve(Lerp(startT, endT, progress1))).draw(color);
+		}
+	}
+
+	/*void write(Image& image, int divNum = 30, const Color& color = Palette::White, double startT = 0.0, double endT = 1.0)const
+	{
+		for (int i = 0; i < divNum; ++i)
+		{
+			const double progress0 = 1.0*i / divNum;
+			const double progress1 = 1.0*(i + 1) / divNum;
+			Line(curve(Lerp(startT, endT, progress0)), curve(Lerp(startT, endT, progress1))).write(image, color);
+		}
+	}*/
+
+	void write(Image& image, int divNum = 30, const Color& color = Palette::White)const
+	{
+		for (int i = 0; i < divNum; ++i)
+		{
+			const double progress0 = 1.0*i / divNum;
+			const double progress1 = 1.0*(i + 1) / divNum;
+			Line(curve(Lerp(m_startT, m_endT, progress0)), curve(Lerp(m_startT, m_endT, progress1))).write(image, color);
+		}
+	}
+	
+	void drawArrow(int divNum = 30, const Color& color = Palette::White, double startT = 0.0, double endT = 1.0)const
+	{
+		for (int i = 0; i < divNum; ++i)
+		{
+			const double progress0 = 1.0*i / divNum;
+			const double progress1 = 1.0*(i + 1) / divNum;
+			Line(curve(Lerp(startT, endT, progress0)), curve(Lerp(startT, endT, progress1))).drawArrow(1.0, { 5.0,5.0 }, color);
+		}
 	}
 
 	void setRange(double startT, double endT)
@@ -162,8 +226,11 @@ public:
 
 	void getSpecificPathHighPrecision(ClipperLib::Path& output, size_t zIndex, double interval, double permissibleError = 1.0)const
 	{
-		const auto adder = [&output](const Vec2& pos, size_t zIndex)
+		const auto adder = [&](const Vec2& pos_, size_t zIndex)
 		{
+			const Vec2 pos = m_transform.transform(pos_);
+			//LOG(__LINE__, L", transform: ", m_transform);
+			//LOG(__LINE__, L", pos:", pos_, L" -> ", pos);
 			output << ClipperLib::IntPoint(pos.x * scaleInt, pos.y * scaleInt, zIndex);
 		};
 
@@ -172,59 +239,23 @@ public:
 
 	void getSpecificPathHighPrecision(std::vector<Vec2>& output, double interval, double permissibleError = 1.0)const
 	{
-		const auto adder = [&output](const Vec2& pos, size_t zIndex)
+		const auto adder = [&](const Vec2& pos, size_t zIndex)
 		{
-			output.push_back(pos);
+			output.push_back(m_transform.transform(pos));
 		};
 
 		getSpecificPathHighPrecisionImpl(adder, 0, interval, permissibleError);
 	}
 
-	/*
-	void getSpecificPathHighPrecision(ClipperLib::Path& output, size_t zIndex, double interval, double permissibleError = 1.0)const
-	{	
-		const Vec2 startPos = m_curve(m_startT);
-		output << ClipperLib::IntPoint(startPos.x * scaleInt, startPos.y * scaleInt, zIndex);
-
-		const auto binarySearchStep = [&](double prevT, double leftBound, double rightBound)->double
-		{
-			for (int count = 0; count < 100; ++count)
-			{
-				double newT = (leftBound + rightBound)*0.5;
-
-				const double distance = m_curve.length(prevT, newT);
-				if ((interval - permissibleError) <= distance && distance <= (interval + permissibleError))//OK!
-				{
-					const Vec2 newPos = m_curve(newT);
-					output << ClipperLib::IntPoint(newPos.x * scaleInt, newPos.y * scaleInt, zIndex);
-					return newT;
-				}
-				else if (distance < interval - permissibleError)//‘«‚è‚È‚¢
-				{
-					leftBound = newT;
-				}
-				else//i‚Ý‚·‚¬
-				{
-					rightBound = newT;
-				}
-			}
-
-			LOG_ERROR(L"Žû‘©‚ÉŽ¸”s");
-
-			return (leftBound + rightBound)*0.5;
-		};
-		
-		double currentT = m_startT;
-		for (; interval + permissibleError < m_curve.length(currentT, m_endT);)
-		{
-			currentT = binarySearchStep(currentT, currentT, m_endT);
-		}
-	}
-	*/
-
-	Optional<double> closestPointOpt(const Vec2& pos, double threshold)const
+	/*Optional<double> closestPointOpt(const Vec2& pos, double threshold)const
 	{
 		return m_curve.closestPointOpt(pos, threshold, m_startT, m_endT);
+	}*/
+
+	void setTransform(const Mat3x2& transform, const Mat3x2& transformInv)
+	{
+		m_transform = transform;
+		m_transformInv = transformInv;
 	}
 
 private:
@@ -338,6 +369,8 @@ private:
 
 		m_segmentTree = std::make_shared<SegmentTree>(0.0, 1.0, curvePoints);
 	}
+
+	Mat3x2 m_transform = Mat3x2::Identity(), m_transformInv = Mat3x2::Identity();
 
 	BezierCurve m_curve;
 	std::shared_ptr<SegmentTree> m_segmentTree;

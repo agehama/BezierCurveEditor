@@ -6,6 +6,27 @@ void Main()
 {
 	Graphics::SetBackground(Color(245, 245, 245));
 
+	BezierPathClipper clipper;
+
+	Camera2D camera2d;
+
+	while (System::Update())
+	{
+		camera2d.update();
+		{
+			auto t = camera2d.createTransformer();
+			clipper.update();
+			clipper.draw();
+		}
+		camera2d.draw();
+	}
+}
+
+/*
+void Main()
+{
+	Graphics::SetBackground(Color(245, 245, 245));
+
 	//BezierPathClipper clipper;
 	Profiler::EnableWarning(false);
 
@@ -21,12 +42,6 @@ void Main()
 	while (System::Update())
 	{
 		camera2d.update();
-		/*{
-			auto t = camera2d.createTransformer();
-			clipper.update();
-			clipper.draw();
-		}*/
-
 		
 		{
 			auto t = camera2d.createTransformer();
@@ -76,3 +91,4 @@ void Main()
 		camera2d.draw();
 	}
 }
+*/

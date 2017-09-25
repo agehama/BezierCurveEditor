@@ -562,7 +562,7 @@ public:
 	{
 		/*static int passCount = 0;
 
-		if (passCount == 3)
+		if (passCount == 2)
 		{
 			const auto baseName = FileSystem::BaseName(FileSystem::UniquePath());
 			std::ofstream ofs1(CharacterSet::Narrow(
@@ -581,6 +581,7 @@ public:
 				ofs2 << p.X << " " << p.Y << " " << p.Z << "\n";
 			}
 
+			++passCount;
 			return{};
 		}
 
@@ -1814,6 +1815,20 @@ std::pair<Optional<ClipperLib::IntPoint>, Optional<ClipperLib::IntPoint>> Shared
 inline ClippingRelation CalcRetation(const ClipperLib::Path & polygonA, const ClipperLib::Path & polygonB)
 {
 	const auto sharedDistant = SharedPoint_DistantPoint(polygonA, polygonB);
+
+	/*
+	バグ：
+	polygonAがpolygonBに内接するケースではクリッピングを行ってはいけない。
+	Clipperの仕様上、穴はそれより大きなパスから一部を切り抜くためのもので、穴より小さいパスから切り抜くと結果が間違ってしまう。
+	したがってpolygonBの方がpolygonAよりも大きい場合は、AdjacentOuter or Distantを返したい。
+	*/
+	if (sharedDistant.second)
+	{
+		if (!IsInner(polygonA, sharedDistant.second.value()))
+		{
+			return sharedDistant.first ? ClippingRelation::AdjacentOuter : ClippingRelation::Distant;
+		}
+	}
 
 	/*
 	distant pointが1つもないケースはあり得るか？

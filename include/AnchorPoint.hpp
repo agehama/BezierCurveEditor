@@ -13,45 +13,46 @@ public:
 		m_points({ posA, posAnchor, posB })
 	{}
 
-	void setSymmetricallyA(const Vec2& pos)
+	void setSymmetricallyA(const Vec2& screenPos)
 	{
-		controlPointA() = pos;
-		controlPointB() = anchorPoint().movedBy(anchorPoint() - controlPointA());
+		controlPointA_Raw() = m_transformInv.transform(screenPos);
+		controlPointB_Raw() = anchorPoint_Raw().movedBy(anchorPoint_Raw() - controlPointA_Raw());
 	}
 
-	void setSymmetricallyB(const Vec2& pos)
+	void setSymmetricallyB(const Vec2& screenPos)
 	{
-		controlPointB() = pos;
-		controlPointA() = anchorPoint().movedBy(anchorPoint() - controlPointB());
+		controlPointB_Raw() = m_transformInv.transform(screenPos);
+		controlPointA_Raw() = anchorPoint_Raw().movedBy(anchorPoint_Raw() - controlPointB_Raw());
 	}
 
-	Vec2& controlPointA() { return m_points[0]; }
 
-	const Vec2& controlPointA()const { return m_points[0]; }
+	Vec2& controlPointA_Raw() { return m_points[0]; }
 
-	Vec2& anchorPoint() { return m_points[1]; }
+	Vec2& anchorPoint_Raw() { return m_points[1]; }
 
-	const Vec2& anchorPoint()const { return m_points[1]; }
+	Vec2& controlPointB_Raw() { return m_points[2]; }
 
-	Vec2& controlPointB() { return m_points[2]; }
+	const Vec2& controlPointA_Raw()const { return m_points[0]; }
 
-	const Vec2& controlPointB()const { return m_points[2]; }
+	const Vec2& anchorPoint_Raw()const { return m_points[1]; }
 
-	Vec2& operator[](size_t i) { return m_points[i]; }
+	const Vec2& controlPointB_Raw()const { return m_points[2]; }
 
-	const Vec2& operator[](size_t i)const { return m_points[i]; }
+	Vec2 controlPointA_Screen()const { return m_transform.transform(m_points[0]); }
 
-	size_t size()const { return m_points.size(); }
+	Vec2 anchorPoint_Screen()const { return m_transform.transform(m_points[1]); }
 
-	Line innerHandle()const
-	{
-		return Line(controlPointA(), anchorPoint());
-	}
+	Vec2 controlPointB_Screen()const { return m_transform.transform(m_points[2]); }
 
-	Line outerHandle()const
-	{
-		return Line(anchorPoint(), controlPointB());
-	}
+
+	Line innerHandle_Raw()const { return Line(controlPointA_Raw(), anchorPoint_Raw()); }
+
+	Line outerHandle_Raw()const { return Line(anchorPoint_Raw(), controlPointB_Raw()); }
+
+	Line innerHandle_Screen()const { return Line(controlPointA_Screen(), anchorPoint_Screen()); }
+
+	Line outerHandle_Screen()const { return Line(anchorPoint_Screen(), controlPointB_Screen()); }
+
 
 	bool updateControlPoint(double radius)
 	{
@@ -74,14 +75,15 @@ public:
 			{
 				if (m_grabbingIndex.value() == 1)
 				{
-					m_points[0] += Mouse::DeltaF();
-					m_points[1] += Mouse::DeltaF();
-					m_points[2] += Mouse::DeltaF();
+					const Vec2 absDelta = directionScrToAbs(Mouse::DeltaF());
+					m_points[0] += absDelta;
+					m_points[1] += absDelta;
+					m_points[2] += absDelta;
 				}
 				//êßå‰ì_Çå¬ï Ç…ìÆÇ©Ç∑
 				else if (Input::KeyAlt.pressed)
 				{
-					m_points[m_grabbingIndex.value()] = Mouse::PosF();
+					m_points[m_grabbingIndex.value()] = m_transformInv.transform(Mouse::PosF());
 				}
 				//êßå‰ì_ÇëŒèÃÇ…ìÆÇ©Ç∑
 				else
@@ -101,8 +103,10 @@ public:
 
 	Optional<size_t> mouseOverIndex(double radius)const
 	{
-		const Vec2 mousePos = Mouse::PosF();
-		const double radius2 = radius*radius;
+		const Vec2 mousePos = m_transformInv.transform(Mouse::PosF());
+
+		const double acsScale = scaleScrToAbs(radius);
+		const double radius2 = acsScale*acsScale;
 
 		for (auto i : step(m_points.size()))
 		{
@@ -131,14 +135,43 @@ public:
 		Circle(anchorPoint(), radius).drawFrame(1.0, 1.0, Color(112, 86, 151));
 		Circle(controlPointB(), radius*0.5).draw(Color(112, 86, 151));*/
 
-		innerHandle().draw(Color(170, 170, 170, alpha));
-		outerHandle().draw(Color(170, 170, 170, alpha));
-		Circle(controlPointA(), radius*0.5).draw(Color(112, 86, 151, alpha));
-		Circle(anchorPoint(), radius).drawFrame(1.0, 1.0, Color(112, 86, 151, alpha));
-		Circle(controlPointB(), radius*0.5).draw(Color(112, 86, 151, alpha));
+		innerHandle_Screen().draw(Color(170, 170, 170, alpha));
+		outerHandle_Screen().draw(Color(170, 170, 170, alpha));
+		Circle(controlPointA_Screen(), radius*0.5).draw(Color(112, 86, 151, alpha));
+		Circle(anchorPoint_Screen(), radius).drawFrame(1.0, 1.0, Color(112, 86, 151, alpha));
+		Circle(controlPointB_Screen(), radius*0.5).draw(Color(112, 86, 151, alpha));
+	}
+
+	const Mat3x2& transform()const { return m_transform; }
+	const Mat3x2& transformInv()const { return m_transformInv; }
+
+	void setTransform(const Mat3x2& transform, const Mat3x2& transformInv)
+	{
+		m_transform = transform;
+		m_transformInv = transformInv;
 	}
 
 private:
+
+	Vec2 directionScrToAbs(const Vec2& screenDirection)const
+	{
+		const Vec2 p0 = m_transformInv.transform(Vec2(0, 0));
+		const Vec2 p1 = m_transformInv.transform(Vec2(0, 0) + screenDirection);
+		return p1 - p0;
+	}
+
+	double scaleScrToAbs(double screenScale)const
+	{
+		const Vec2 p0 = m_transformInv.transform(Vec2(0, 0));
+		const Vec2 p1 = m_transformInv.transform(Vec2(1, 0));
+		return (p1 - p0).length()*screenScale;
+	}
+	
+	//size_t size()const { return m_points.size(); }
+
+	//const Vec2& operator[](size_t i)const { return m_transform.transform(m_points[i]); }
+
+	Mat3x2 m_transform = Mat3x2::Identity(), m_transformInv = Mat3x2::Identity();
 
 	std::array<Vec2, 3> m_points;
 	Optional<size_t> m_grabbingIndex;
