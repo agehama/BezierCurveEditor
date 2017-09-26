@@ -1,11 +1,13 @@
 #pragma once
 #include <queue>
+#include <numeric>
 #include <Siv3D.hpp> // August 2016 v2
 #include "include/AnchorPoint.hpp"
 #include "include/BoundingRect.hpp"
 #include "include/BezierCurve.hpp"
 #include "include/CurveSegment.hpp"
 #include "include/PolygonSubtractor.hpp"
+#include "include/DMat3x2.hpp"
 
 #include "include/clipper/clipper.hpp"
 
@@ -13,6 +15,8 @@ int64 profilingTime1;
 int64 profilingTime2;
 int64 profilingTime3;
 int64 profilingTime4;
+
+//extern std::ofstream ofs;
 
 //#define DEBUG_OUTPUT_IMAGE
 
@@ -486,9 +490,38 @@ public:
 		for (const auto& p : m_anchorPoints)
 		{
 			//writer.write(p[0], p[1], p[2]);
-			writer.write(p.controlPointA_Raw(), p.anchorPoint_Raw(), p.controlPointB_Raw());
+			//writer.write(p.controlPointA_Raw(), p.anchorPoint_Raw(), p.controlPointB_Raw());
+			writer.write(p.controlPointA_Screen(), p.anchorPoint_Screen(), p.controlPointB_Screen());
 		}
 		writer.nextLine();
+	}
+
+	const Vec2 centerPos_Raw()const
+	{
+		Vec2 pos(0, 0);
+		for (const auto& p : m_anchorPoints)
+		{
+			pos += p.anchorPoint_Raw();
+		}
+		pos /= m_anchorPoints.size();
+		return pos;
+		/*std::vector<Vec2>ps;
+		for (const auto& p : m_anchorPoints)
+		{
+			ps.push_back(p.anchorPoint_Screen());
+		}
+		return Polygon(ps).centroid();*/
+	}
+
+	const Vec2 centerPos_Screen()const
+	{
+		Vec2 pos(0, 0);
+		for (const auto& p : m_anchorPoints)
+		{
+			pos += p.anchorPoint_Screen();
+		}
+		pos /= m_anchorPoints.size();
+		return pos;
 	}
 
 	const Vec2& pos()const { return m_pos; }
@@ -515,17 +548,44 @@ public:
 		updateTransforms();
 	}
 
+	double area()const
+	{
+		std::vector<Vec2> result;
+		for (int segment = 0; segment < m_curveSegments.size(); ++segment)
+		{
+			m_curveSegments[segment].getSpecificPathHighPrecision(result, 5.0);
+		}
+
+		return Polygon(result).area();
+	}
+
+	void setBaseOrigin()
+	{
+		const Vec2 delta = centerPos_Raw();
+
+		for (auto& p : m_anchorPoints)
+		{
+			p.anchorPoint_Raw() -= delta;
+			p.controlPointA_Raw() -= delta;
+			p.controlPointB_Raw() -= delta;
+		}
+		setPos(pos() + delta);
+	}
+
 private:
 
 	void updateTransforms()
 	{
-		const Mat3x2 transform = Mat3x2::Identity().scale(m_scale).rotate(m_angle).translate(m_pos);
-		const Mat3x2 transformInv = transform.inverse();
+		const DMat3x2 transform = DMat3x2::Identity().scale(m_scale).rotate(m_angle).translate(m_pos);
+		const DMat3x2 transformInv = transform.inverse();
 
+		//ofs << "path pos: " << m_pos.x << ", " << m_pos.y << "\n";
 		for (auto& p : m_anchorPoints)
 		{
 			p.setTransform(transform, transformInv);
+			//ofs << "____anchor pos: " << p.anchorPoint_Screen().x << ", " << p.anchorPoint_Screen().y << "\n";
 		}
+		//ofs << "____center pos: " << centerPos_Screen().x << ", " << centerPos_Screen().y << "\n";
 
 		constractCurveSegments();
 	}
@@ -612,7 +672,7 @@ public:
 			--m_drawDepth;
 			m_drawIndex = 0;
 		}
-		m_drawDepth = Clamp(m_drawDepth, 0, 10);
+		//m_drawDepth = Clamp(m_drawDepth, 0, 10);
 
 		if (Input::KeyLeft.clicked)
 		{
@@ -623,7 +683,7 @@ public:
 			++m_drawIndex;
 		}
 
-		Window::SetTitle(L"Depth: ", m_drawDepth, L", Poly: ", m_drawIndex, L"/", m_loops.size(), L", ", Mouse::Pos());
+		Window::SetTitle(L"Loop: ", m_drawDepth, L"/", m_loops.size(), L", Index: ", m_drawIndex, L", ", Mouse::Pos());
 
 		drawImpl(m_drawDepth, 0, m_drawIndex);
 	}
@@ -1045,7 +1105,17 @@ public:
 	void debugLog()const
 	{
 		//m_loops.front().front().;
+	}
 
+	double area()const
+	{
+		double area = 0;
+		for (const auto& loop : m_lines)
+		{
+			area += Polygon(loop).area();
+		}
+
+		return area;
 	}
 
 private:
@@ -1147,14 +1217,14 @@ private:
 
 	}
 
-	void drawImpl(int maxDepth, int currentDepth, int drawIndex)
+	void drawImpl(int drawDepth, int currentDepth, int drawIndex)
 	{
-		if (maxDepth < currentDepth)
+		if (drawDepth < currentDepth)
 		{
 			return;
 		}
 
-		if (maxDepth == currentDepth)
+		//if (maxDepth == currentDepth)
 		{
 			//直線描画（デバッグ用）
 			/*if (Input::KeyShift.pressed)
@@ -1196,7 +1266,8 @@ private:
 				{
 					for (auto i : step(m_lines.size()))
 					{
-						const int currentDrawIndex = (drawIndex % m_lines.size());
+						//const int currentDrawIndex = (drawIndex % m_lines.size());
+						const int currentDrawIndex = (drawDepth % m_lines.size());
 						if (i != currentDrawIndex)continue;
 						
 						//Window::SetTitle(L"Depth: ", currentDepth, L", Line: ", currentDrawIndex, L"/", m_lines.size(), L", AB: ", Line(m_lines[i].begin()->first.begin, m_lines[i].rbegin()->first.end), L", Mouse: ", Mouse::Pos());
@@ -1204,8 +1275,10 @@ private:
 
 						const auto& currentLoop = m_lines[i];
 						const auto& currentLoopColor = m_lineColors[i];
+
+						const int lineIndex = drawIndex % currentLoop.size();
 						
-						for (int lineIndex = 0; lineIndex < currentLoop.size(); ++lineIndex)
+						//for (int lineIndex = 0; lineIndex < currentLoop.size(); ++lineIndex)
 						{
 							//currentLoop[lineIndex];
 							//currentLoop[(lineIndex + 1) % currentLoop.size()];
@@ -1223,7 +1296,8 @@ private:
 				{
 					for (auto i : step(m_lines.size()))
 					{
-						const int currentDrawIndex = (drawIndex % m_lines.size());
+						//const int currentDrawIndex = (drawIndex % m_lines.size());
+						const int currentDrawIndex = (drawDepth % m_lines.size());
 						if (i != currentDrawIndex)continue;
 
 						//Window::SetTitle(L"Depth: ", currentDepth, L", Line: ", currentDrawIndex, L"/", m_lines.size(), L", AB: ", Line(m_lines[i].begin()->first.begin, m_lines[i].rbegin()->first.end), L", Mouse: ", Mouse::Pos());
@@ -1232,7 +1306,9 @@ private:
 						const auto& currentLoop = m_lines[i];
 						const auto& currentLoopColor = m_lineColors[i];
 
-						for (int lineIndex = 0; lineIndex < currentLoop.size(); ++lineIndex)
+						const int lineIndex = drawIndex % currentLoop.size();
+
+						//for (int lineIndex = 0; lineIndex < currentLoop.size(); ++lineIndex)
 						{
 							//m_lines[i][line].first.draw(1.0, m_lines[i][line].second);
 							Line(currentLoop[lineIndex], currentLoop[(lineIndex + 1) % currentLoop.size()]).draw(currentLoopColor[lineIndex]);
@@ -1247,15 +1323,20 @@ private:
 
 				for (auto i : step(m_loops.size()))
 				{
-					const int currentDrawIndex = (drawIndex % m_loops.size());
+					//const int currentDrawIndex = (drawIndex % m_loops.size());
+					const int currentDrawIndex = (drawDepth % m_loops.size());
 					//Window::SetTitle(L"Depth: ", currentDepth, L", Vert: ", currentDrawIndex, L" of ", m_loops.size());
 
 					if (i != currentDrawIndex)continue;
 
 					//const auto& curveSegment = m_curveSegments[i];
 
-					for (const auto& curveSegmentPair : m_loops[i])
+					const int curveSegmentIndex = drawIndex % m_loops[i].size();
+
+					//for (const auto& curveSegmentPair : m_loops[i])
 					{
+						const auto& curveSegmentPair = m_loops[i][curveSegmentIndex];
+
 						const auto& curveSegment = curveSegmentPair.first;
 
 						if (Input::KeyControl.pressed)
@@ -1280,7 +1361,7 @@ private:
 
 		for (auto p : m_childs)
 		{
-			p->drawImpl(maxDepth, currentDepth + 1, drawIndex);
+			p->drawImpl(drawDepth, currentDepth + 1, drawIndex);
 		}
 	}
 
@@ -1487,6 +1568,7 @@ public:
 				}
 #endif
 				
+				//return;
 			}
 
 			int processCount = 0;
@@ -1624,6 +1706,26 @@ public:
 					LOG_DEBUG(L"<A");
 					const auto relation = CalcRetation(pathLoop, pathHole);
 					LOG_DEBUG(L"B>");
+
+					if (checkCount == 4)
+					{
+						const auto baseName = FileSystem::BaseName(FileSystem::UniquePath());
+						std::ofstream ofs1(CharacterSet::Narrow(
+							baseName + L"_poly1.txt"
+						));
+						std::ofstream ofs2(CharacterSet::Narrow(
+							baseName + L"_poly2.txt"
+						));
+
+						for (const auto& p : pathLoop)
+						{
+							ofs1 << p.X << " " << p.Y << " " << p.Z << "\n";
+						}
+						for (const auto& p : pathHole)
+						{
+							ofs2 << p.X << " " << p.Y << " " << p.Z << "\n";
+						}
+					}
 
 #ifdef DEBUG_OUTPUT_IMAGE
 					CheckIntersection(Format(L"path_check_", checkCount++, L".png"), pathLoop, pathHole);
@@ -1772,8 +1874,8 @@ public:
 			
 			//profiler.end();
 			
-			m_pTree->dumpPoly(L"result_poly.png");
-			m_pTree->dumpHoles(L"result_holes.png");
+			//m_pTree->dumpPoly(L"result_poly.png");
+			//m_pTree->dumpHoles(L"result_holes.png");
 
 
 			/*
@@ -1967,7 +2069,14 @@ public:
 		}
 		else if (m_pTree)
 		{
-			m_pTree->draw();
+			if (Input::KeyP.pressed)
+			{
+				m_pTree->drawAll();
+			}
+			else
+			{
+				m_pTree->draw();
+			}
 		}
 
 		if (Input::KeyD.pressed)
@@ -2339,9 +2448,11 @@ private:
 	全体(profilingTime): 10ms
 	*/
 	template<class PathHolderType>
-	static int CombineZIndex(const ClipVertex& p1, ClipVertex& p2, const PathHolderType& originalPaths,bool debugFlag=false)
+	static int CombineZIndex(const ClipVertex& p1, ClipVertex& p2, const PathHolderType& originalPaths)
 	{
 		//StopwatchMicrosec watch(true);
+		
+		//CombineZIndex((341.50739,423.01688,40,8), (342,423,0,9))
 
 		const int lower1 = static_cast<int>(p1.m_Z & INT32_MAX);
 		const int upper1 = static_cast<int>(p1.m_Z >> 32);
@@ -2349,6 +2460,11 @@ private:
 		const int upper2 = static_cast<int>(p2.m_Z >> 32);
 
 		LOG_DEBUG(L"CombineZIndex(", Vec4(p1.m_pos, upper1, lower1), L", ", Vec4(p2.m_pos, upper2, lower2), L")");
+		bool debugFlag = false;
+		if (upper1 == 40 && lower1 == 8 && upper2 == 0 && lower2 == 9)
+		{
+			debugFlag = true;
+		}
 
 		//連続している（普通のケース）
 		if (lower1 == lower2)
@@ -2365,15 +2481,118 @@ private:
 		}
 		//片方のupperのみ存在する場合：片方の端点は交点なので二つインデックスが存在する。
 		//このような場合は交点ではない方のインデックスを取ってくればよい
+		/*
+		バグ：
+		今までは、lower1はlower2もしくはupper2のどちらかと等しいという仮定を置いていた。
+		しかし、交点の直前で直線が切り替わるようなケースでは、lower1,lower2,upper2の全て異なるインデックスを指す場合がある。
+		このような場合では、どれか一つの曲線が交点を包含しているはずで、そのインデックスを探し出さなければならない。
+		そして、lower1はlower2もしくはupper2のどちらかと等しい場合は、端に交点を含むパターンなので、今まで通りlower1を返す。
+		逆にこの時に包含している曲線の判定に入ってしまうと、交点が端にあるせいで間違ったインデックスを返してしまうので先に分岐しておく。
+		*/
 		else if (upper1 == 0 && upper2 != 0)
 		{
 			//profilingTime += watch.us();
-			return lower1;
+			//return lower1;
+
+			if (lower1 == lower2 || lower1 == upper2)
+			{
+				return lower1;
+			}
+
+			//LOG_DEBUG(L"L(", __LINE__, L"): debug point(upper1 == 0 && upper2 != 0)");
+			const auto& crossPoint = p2.m_pos;
+			//LOG_DEBUG(L"____crossPoint: ", crossPoint);
+
+			auto curve_lower1 = GetSegmentCurve(lower1, originalPaths);
+			auto curve_lower2 = GetSegmentCurve(lower2, originalPaths);
+			auto curve_upper2 = GetSegmentCurve(upper2, originalPaths);
+			
+			const double t_lower1 = (curve_lower1 ? curve_lower1.value().closestPoint(crossPoint) : 1000.0);
+			const double t_lower2 = (curve_lower2 ? curve_lower2.value().closestPoint(crossPoint) : 1000.0);
+			const double t_upper2 = (curve_upper2 ? curve_upper2.value().closestPoint(crossPoint) : 1000.0);
+			//LOG_DEBUG(L"____t_lower1(", lower1, L"): ", t_lower1);
+			//LOG_DEBUG(L"____t_lower2(", lower2, L"): ", t_lower2);
+			//LOG_DEBUG(L"____t_upper2(", upper2, L"): ", t_upper2);
+
+			const double d_lower1 = (curve_lower1 ? curve_lower1.value().curve(t_lower1).distanceFromSq(crossPoint) : 1.e+6);
+			const double d_lower2 = (curve_lower2 ? curve_lower2.value().curve(t_lower2).distanceFromSq(crossPoint) : 1.e+6);
+			const double d_upper2 = (curve_upper2 ? curve_upper2.value().curve(t_upper2).distanceFromSq(crossPoint) : 1.e+6);
+			//LOG_DEBUG(L"____d_lower1(", lower1, L"): ", d_lower1);
+			//LOG_DEBUG(L"____d_lower2(", lower2, L"): ", d_lower2);
+			//LOG_DEBUG(L"____d_upper2(", upper2, L"): ", d_upper2);
+
+			const int resultIndex = d_lower1 < d_lower2 && d_lower1 < d_upper2
+				? lower1
+				: (d_lower2 < d_upper2 ? lower2 : upper2);
+				
+			//LOG_DEBUG(L"____result: ", lower1, L" -> ", resultIndex);
+
+			return resultIndex;
 		}
 		else if (upper2 == 0 && upper1 != 0)
 		{
+			if (lower1 == lower2 || upper1 == lower2)
+			{
+				return lower2;
+			}
+
+			const auto& crossPoint = p1.m_pos;
+			
+			auto curve_lower1 = GetSegmentCurve(lower1, originalPaths);
+			auto curve_lower2 = GetSegmentCurve(lower2, originalPaths);
+			auto curve_upper1 = GetSegmentCurve(upper1, originalPaths);
+
+			const double t_lower1 = (curve_lower1 ? curve_lower1.value().closestPoint(crossPoint) : 1000.0);
+			const double t_lower2 = (curve_lower2 ? curve_lower2.value().closestPoint(crossPoint) : 1000.0);
+			const double t_upper1 = (curve_upper1 ? curve_upper1.value().closestPoint(crossPoint) : 1000.0);
+			
+			const double d_lower1 = (curve_lower1 ? curve_lower1.value().curve(t_lower1).distanceFromSq(crossPoint) : 1.e+6);
+			const double d_lower2 = (curve_lower2 ? curve_lower2.value().curve(t_lower2).distanceFromSq(crossPoint) : 1.e+6);
+			const double d_upper1 = (curve_upper1 ? curve_upper1.value().curve(t_upper1).distanceFromSq(crossPoint) : 1.e+6);
+			
+			return d_lower1 < d_lower2 && d_lower1 < d_upper1
+				? lower1
+				: (d_lower2 < d_upper1 ? lower2 : upper1);
+
+			
+			/*
+			if (debugFlag)
+			{
+				LOG_DEBUG(L"L(", __LINE__, L"): debug point(upper2 == 0 && upper1 != 0)");
+				const auto& crossPoint = p1.m_pos;
+				LOG_DEBUG(L"____crossPoint: ", crossPoint);
+				auto curve_lower1 = GetSegmentCurve(lower1, originalPaths);
+				auto curve_lower2 = GetSegmentCurve(lower2, originalPaths);
+				auto curve_upper1 = GetSegmentCurve(upper1, originalPaths);
+
+				const double t_lower1 = (curve_lower1 ? curve_lower1.value().closestPoint(crossPoint) : 1000.0);
+				const double t_lower2 = (curve_lower2 ? curve_lower2.value().closestPoint(crossPoint) : 1000.0);
+				const double t_upper1 = (curve_upper1 ? curve_upper1.value().closestPoint(crossPoint) : 1000.0);
+				LOG_DEBUG(L"____t_lower1(", lower1, L"): ", t_lower1);
+				LOG_DEBUG(L"____t_lower2(", lower2, L"): ", t_lower2);
+				LOG_DEBUG(L"____t_upper1(", upper1, L"): ", t_upper1);
+
+				const double d_lower1 = (curve_lower1 ? curve_lower1.value().curve(t_lower1).distanceFromSq(crossPoint) : 1.e+6);
+				const double d_lower2 = (curve_lower2 ? curve_lower2.value().curve(t_lower2).distanceFromSq(crossPoint) : 1.e+6);
+				const double d_upper1 = (curve_upper1 ? curve_upper1.value().curve(t_upper1).distanceFromSq(crossPoint) : 1.e+6);
+				LOG_DEBUG(L"____d_lower1(", lower1, L"): ", d_lower1);
+				LOG_DEBUG(L"____d_lower2(", lower2, L"): ", d_lower2);
+				LOG_DEBUG(L"____d_upper1(", upper1, L"): ", d_upper1);
+				
+				int resultIndex = d_lower1 < d_lower2 && d_lower1 < d_upper1
+					? lower1
+					: (d_lower2 < d_upper1 ? lower2 : upper1);
+
+				LOG_DEBUG(L"____result: ", lower2, L" -> ", resultIndex);
+				
+				return resultIndex;
+			}
+
 			//profilingTime += watch.us();
 			return lower2;
+			*/
+			
+
 		}
 		//次の曲線に繋がるケース
 		/*
@@ -2839,7 +3058,7 @@ private:
 
 				for (auto i : step(loopCurve.size()))
 				{
-					const int zIndex = CombineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()], originalPaths, true);
+					const int zIndex = CombineZIndex(loopCurve[i], loopCurve[(i + 1) % loopCurve.size()], originalPaths);
 
 					const Vec2 startPos = loopCurve[i].m_pos;
 					const Vec2 endPos = loopCurve[(i + 1) % loopCurve.size()].m_pos;

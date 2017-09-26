@@ -132,8 +132,8 @@ struct BezierCurve
 
 		double sum = 0.0;
 
-		//const double stepSize = 0.01;
-		const double stepSize = 0.1;
+		const double stepSize = 0.01;
+		//const double stepSize = 0.1;
 		const int divNum = static_cast<int>((endT - startT) / stepSize);
 		int i = 0;
 		for (; i < divNum; ++i)

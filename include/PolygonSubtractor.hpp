@@ -2,6 +2,7 @@
 #include <fstream>
 #include "clipper/clipper.hpp"
 #include "CurveSegment.hpp"
+#include "DMat3x2.hpp"
 
 extern int64 profilingTime3;
 extern int64 profilingTime4;
@@ -1287,7 +1288,7 @@ public:
 		}
 	}
 
-	void debugDraw2(const Mat3x2& mat)
+	void debugDraw2(const DMat3x2& mat)
 	{
 		const auto ToDrawVec2 = [&](const ClipperLib::IntPoint& p)
 		{

@@ -1,6 +1,7 @@
 #pragma once
 #include <Siv3D.hpp>
 #include "SegmentTree.hpp"
+#include "DMat3x2.hpp"
 #include "clipper/clipper.hpp"
 
 static const double scaleInt = 100000.0;
@@ -252,7 +253,7 @@ public:
 		return m_curve.closestPointOpt(pos, threshold, m_startT, m_endT);
 	}*/
 
-	void setTransform(const Mat3x2& transform, const Mat3x2& transformInv)
+	void setTransform(const DMat3x2& transform, const DMat3x2& transformInv)
 	{
 		m_transform = transform;
 		m_transformInv = transformInv;
@@ -370,7 +371,7 @@ private:
 		m_segmentTree = std::make_shared<SegmentTree>(0.0, 1.0, curvePoints);
 	}
 
-	Mat3x2 m_transform = Mat3x2::Identity(), m_transformInv = Mat3x2::Identity();
+	DMat3x2 m_transform = DMat3x2::Identity(), m_transformInv = DMat3x2::Identity();
 
 	BezierCurve m_curve;
 	std::shared_ptr<SegmentTree> m_segmentTree;

@@ -1,5 +1,6 @@
 #pragma once
 #include <Siv3D.hpp>
+#include "DMat3x2.hpp"
 
 class AnchorPoint
 {
@@ -142,10 +143,10 @@ public:
 		Circle(controlPointB_Screen(), radius*0.5).draw(Color(112, 86, 151, alpha));
 	}
 
-	const Mat3x2& transform()const { return m_transform; }
-	const Mat3x2& transformInv()const { return m_transformInv; }
+	const DMat3x2& transform()const { return m_transform; }
+	const DMat3x2& transformInv()const { return m_transformInv; }
 
-	void setTransform(const Mat3x2& transform, const Mat3x2& transformInv)
+	void setTransform(const DMat3x2& transform, const DMat3x2& transformInv)
 	{
 		m_transform = transform;
 		m_transformInv = transformInv;
@@ -171,7 +172,7 @@ private:
 
 	//const Vec2& operator[](size_t i)const { return m_transform.transform(m_points[i]); }
 
-	Mat3x2 m_transform = Mat3x2::Identity(), m_transformInv = Mat3x2::Identity();
+	DMat3x2 m_transform = DMat3x2::Identity(), m_transformInv = DMat3x2::Identity();
 
 	std::array<Vec2, 3> m_points;
 	Optional<size_t> m_grabbingIndex;

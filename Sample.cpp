@@ -2,6 +2,7 @@
 #include <HamFramework.hpp>
 #include "BezierCurvePath.hpp"
 
+/*
 void Main()
 {
 	Graphics::SetBackground(Color(245, 245, 245));
@@ -21,8 +22,9 @@ void Main()
 		camera2d.draw();
 	}
 }
+//*/
 
-/*
+//*
 void Main()
 {
 	Graphics::SetBackground(Color(245, 245, 245));
@@ -64,6 +66,11 @@ void Main()
 				}
 			}
 
+			if (Input::MouseM.pressed)
+			{
+				paths[0].setPos(paths[0].pos() + Mouse::DeltaF());
+			}
+
 			if (2 <= paths.size() && paths[1].isClosed())
 			{
 				const uint32 type = gui.radioButton(L"type").checkedItem.value();
@@ -78,6 +85,8 @@ void Main()
 				{
 					path.draw(result ? 96 : 255);
 				}
+
+				Window::SetTitle(result->area());
 			}
 			else
 			{
@@ -91,4 +100,4 @@ void Main()
 		camera2d.draw();
 	}
 }
-*/
+//*/
