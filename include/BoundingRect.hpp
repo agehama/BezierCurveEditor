@@ -25,6 +25,12 @@ public:
 		}
 	}
 
+	void add(const BoundingRect& other)
+	{
+		add(other.m_min);
+		add(other.m_max);
+	}
+
 	RectF get()const
 	{
 		return RectF(m_min, m_max - m_min);

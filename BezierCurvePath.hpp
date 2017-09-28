@@ -310,6 +310,7 @@ public:
 		}
 		m_isClosed = true;
 
+		updateTransforms();
 		constractCurveSegments();
 		calcIntersections();
 	}
@@ -320,6 +321,7 @@ public:
 		m_isClosed = false;
 		m_isGrabbing = true;
 
+		updateTransforms();
 		constractCurveSegments();
 		calcIntersections();
 	}
@@ -546,6 +548,17 @@ public:
 	{
 		m_angle = angle;
 		updateTransforms();
+	}
+
+	BoundingRect boundingRect()const
+	{
+		BoundingRect rect;
+		for (int segment = 0; segment < m_curveSegments.size(); ++segment)
+		{
+			rect.add(m_curveSegments[segment].boundingRect());
+		}
+
+		return rect;
 	}
 
 	double area()const
@@ -1341,13 +1354,13 @@ private:
 
 						if (Input::KeyControl.pressed)
 						{
-							curveSegment.drawArrow(8, HSV(15 * i, 1, 1), curveSegment.range().first, curveSegment.range().second);
+							curveSegment.drawArrow(8, HSV(15 * i, 1, 1));
 						}
 						else
 						{
 							//curveSegment.curve().draw(30, HSV(15 * i, 1, 1), curveSegment.range().first, curveSegment.range().second);
 							//curveSegment.curve().draw(30, getColor(m_loopIsHole[i]), curveSegment.range().first, curveSegment.range().second);
-							curveSegment.draw(30, Palette::Cyan, curveSegment.range().first, curveSegment.range().second);
+							curveSegment.draw(30, Palette::Cyan);
 							if (Input::KeyC.pressed)
 							{
 								Circle(curveSegmentPair.second.begin, 5).drawFrame(1.0, 0.0, HSV(15 * i, 1, 1));
@@ -1412,12 +1425,12 @@ private:
 					if (Input::KeyControl.pressed)
 					{
 						//curveSegment.curve().drawArrow(8, getColor(m_loopIsHole[i]), curveSegment.range().first, curveSegment.range().second);
-						curveSegment.drawArrow(8, Palette::Cyan, curveSegment.range().first, curveSegment.range().second);
+						curveSegment.drawArrow(8, Palette::Cyan);
 					}
 					else
 					{
 						//curveSegment.curve().draw(30, getColor(m_loopIsHole[i]), curveSegment.range().first, curveSegment.range().second);
-						curveSegment.draw(30, Palette::Cyan, curveSegment.range().first, curveSegment.range().second);
+						curveSegment.draw(30, Palette::Cyan);
 						if (Input::KeyC.pressed)
 						{
 							/*Circle(curveSegmentPair.second.begin, 5).drawFrame(1.0, 0.0, getColor(m_loopIsHole[i]));
@@ -3233,3 +3246,15 @@ private:
 
 	std::shared_ptr<LineStringTree> m_pTree;
 };
+
+
+BoundingRect GetBoundingRect(const std::vector<BezierCurvePath>& paths)
+{
+	BoundingRect rect;
+	for (const auto& path : paths)
+	{
+		rect.add(path.boundingRect());
+	}
+
+	return rect;
+}

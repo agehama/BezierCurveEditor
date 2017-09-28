@@ -90,6 +90,7 @@ public:
 				else
 				{
 					m_grabbingIndex.value() == 0 ? setSymmetricallyA(Mouse::PosF()) : setSymmetricallyB(Mouse::PosF());
+					//m_grabbingIndex.value() == 0 ? setSymmetricallyB(Mouse::PosF()) : setSymmetricallyA(Mouse::PosF());
 				}
 			}
 
@@ -109,7 +110,14 @@ public:
 		const double acsScale = scaleScrToAbs(radius);
 		const double radius2 = acsScale*acsScale;
 
-		for (auto i : step(m_points.size()))
+		/*for (auto i : step(m_points.size()))
+		{
+			if (mousePos.distanceFromSq(m_points[i]) < radius2)
+			{
+				return i;
+			}
+		}*/
+		for (int i = static_cast<int>(m_points.size()) - 1; 0 <= i; --i)
 		{
 			if (mousePos.distanceFromSq(m_points[i]) < radius2)
 			{

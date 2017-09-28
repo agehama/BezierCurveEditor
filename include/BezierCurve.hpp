@@ -23,9 +23,40 @@ struct BezierCurve
 		return (1 - t)*(1 - t)*(1 - t)*p0 + 3.0*(1 - t)*(1 - t)*t*p1 + 3.0*(1 - t)*t*t*p2 + t*t*t*p3;
 	}
 
+	/*
+	D[p, t] ==
+	-3.0*p0*(1 - t)*(1 - t) + 3.0*p1*(1 - t)*(1 - t) - 6.0*p1*(1 - t)*t + 6.0*p2*(1 - t)*t - 3.0*p2*t*t + 3.0*p3*t*t
+	*/
+
 	Vec2 operator()(double t)const
 	{
 		return get(t);
+	}
+
+	double closestPointCorrect(const Vec2& pos)const
+	{
+		{
+			//StopwatchMicrosec watch(true);
+
+			double minT = 0.0;
+			double minDistanceSq = get(minT).distanceFromSq(pos);
+
+			const int divNum = 5000;
+			for (int i = 0; i < divNum; ++i)
+			{
+				const double t = 1.0*i / (divNum - 1);
+				const double distanceSq = get(t).distanceFromSq(pos);
+				if (distanceSq < minDistanceSq)
+				{
+					minDistanceSq = distanceSq;
+					minT = t;
+				}
+			}
+
+			//profilingTime1 += watch.us();
+
+			return minT;
+		}
 	}
 
 	/*
@@ -42,7 +73,7 @@ struct BezierCurve
 		return Clamp(fromCenter1 < fromCenter2 ? ps.first : ps.second, 0.0, 1.0);*/
 		
 		{
-			StopwatchMicrosec watch(true);
+			//StopwatchMicrosec watch(true);
 
 			double minT = 0.0;
 			double minDistanceSq = get(minT).distanceFromSq(pos);
@@ -59,11 +90,10 @@ struct BezierCurve
 				}
 			}
 
-			profilingTime1 += watch.us();
+			//profilingTime1 += watch.us();
 
 			return minT;
 		}
-		
 	}
 
 	Optional<double> closestPointOpt(const Vec2& pos, double threshold, double startT = 0.0, double endT = 1.0)const
@@ -115,13 +145,36 @@ struct BezierCurve
 			return minT;
 		}
 	}
+
+	double lengthCorrect(double startT, double endT)const
+	{
+		const auto df = [&](double t)
+		{
+			const double xx = -3 * (1 - t)*(1 - t)*p0.x + 3 * (1 - t)*(1 - t)*p1.x - 6 * (1 - t)*t*p1.x + 6 * (1 - t)*t*p2.x - 3 * t*t*p2.x + 3 * t*t*p3.x;
+			const double yy = -3 * (1 - t)*(1 - t)*p0.y + 3 * (1 - t)*(1 - t)*p1.y - 6 * (1 - t)*t*p1.y + 6 * (1 - t)*t*p2.y - 3 * t*t*p2.y + 3 * t*t*p3.y;
+			return sqrt(xx*xx + yy*yy);
+		};
+
+		double sum = 0.0;
+
+		const double stepSize = 0.0001;
+		const int divNum = static_cast<int>((endT - startT) / stepSize);
+		int i = 0;
+		for (; i < divNum; ++i)
+		{
+			sum += stepSize*df(startT + stepSize*i);
+		}
+		sum += ((endT - startT) - stepSize*i)*df(endT);
+
+		return sum;
+	}
 	
 	/*
 	‘S‘Ì(length): 18ms
 	*/
 	double length(double startT, double endT)const
 	{
-		StopwatchMicrosec watch(true);
+		//StopwatchMicrosec watch(true);
 
 		const auto df = [&](double t)
 		{
@@ -133,7 +186,6 @@ struct BezierCurve
 		double sum = 0.0;
 
 		const double stepSize = 0.01;
-		//const double stepSize = 0.1;
 		const int divNum = static_cast<int>((endT - startT) / stepSize);
 		int i = 0;
 		for (; i < divNum; ++i)
@@ -142,9 +194,34 @@ struct BezierCurve
 		}
 		sum += ((endT - startT) - stepSize*i)*df(endT);
 
-		profilingTime2 += watch.us();
+		//profilingTime2 += watch.us();
 
 		return sum;
+	}
+
+	double lengthBySimpsonsRule(double startT, double endT)const
+	{
+		const auto df = [&](double t)
+		{
+			const double xx = -3 * (1 - t)*(1 - t)*p0.x + 3 * (1 - t)*(1 - t)*p1.x - 6 * (1 - t)*t*p1.x + 6 * (1 - t)*t*p2.x - 3 * t*t*p2.x + 3 * t*t*p3.x;
+			const double yy = -3 * (1 - t)*(1 - t)*p0.y + 3 * (1 - t)*(1 - t)*p1.y - 6 * (1 - t)*t*p1.y + 6 * (1 - t)*t*p2.y - 3 * t*t*p2.y + 3 * t*t*p3.y;
+			return sqrt(xx*xx + yy*yy);
+		};
+
+		const int n = 20;
+		const int n2 = (n - 2)/2;
+
+		const double h = (endT - startT) / n;
+
+		double sum = df(startT) + df(endT);
+		for (int i = 1; i <= n2; ++i)
+		{
+			sum += 4.0*df(startT + (i * 2 - 1) * h);
+			sum += 2.0*df(startT + i * 2 * h);
+		}
+		sum += 4.0*df(endT - h);
+
+		return h*sum/3.0;
 	}
 
 	void draw(int divNum = 30, const Color& color = Palette::White, double startT = 0.0, double endT = 1.0)const
